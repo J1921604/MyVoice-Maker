@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyVoice Maker - AI音声生成ツール</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #e0e0e0;
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* サイドバー */
+        .sidebar {
+            width: 280px;
+            background: linear-gradient(180deg, #2a2a2a 0%, #1f1f1f 100%);
+            border-right: 2px solid #ff8800;
+            box-shadow: 4px 0 20px rgba(255, 136, 0, 0.3);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .sidebar h1 {
+            color: #ff8800;
+            font-size: 24px;
+            text-align: center;
+            text-shadow: 0 0 10px rgba(255, 136, 0, 0.8);
+            margin-bottom: 20px;
+            border-bottom: 2px solid #ff8800;
+            padding-bottom: 10px;
+        }
+
+        /* メインコンテンツ */
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%);
+            padding: 20px;
+            border-radius: 10px;
+            border: 2px solid #ff8800;
+            box-shadow: 0 4px 15px rgba(255, 136, 0, 0.3);
+            margin-bottom: 30px;
+        }
+
+        .header h2 {
+            color: #ff8800;
+            font-size: 28px;
+            text-shadow: 0 0 10px rgba(255, 136, 0, 0.6);
+        }
+
+        /* ボタン共通スタイル */
+        .btn {
+            background: linear-gradient(135deg, #ff8800 0%, #ff6600 100%);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+            box-shadow: 0 4px 10px rgba(255, 136, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.2);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn:before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+
+        .btn:hover:before {
+            width: 300px;
+            height: 300px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(255, 136, 0, 0.6), inset 0 1px 0 rgba(255,255,255,0.3);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 5px rgba(255, 136, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.2);
+        }
+
+        .btn:disabled {
+            background: linear-gradient(135deg, #666 0%, #555 100%);
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        /* サイドバーボタン */
+        .sidebar .btn {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        /* ツールチップ */
+        [data-tooltip] {
+            position: relative;
+        }
+
+        [data-tooltip]:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            left: 100%;
+            top: 50%;
+            transform: translateY(-50%);
+            margin-left: 10px;
+            padding: 8px 12px;
+            background: rgba(0, 0, 0, 0.9);
+            color: #ff8800;
+            border: 1px solid #ff8800;
+            border-radius: 5px;
+            white-space: nowrap;
+            font-size: 14px;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        }
+
+        /* カード */
+        .card {
+            background: linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%);
+            border: 2px solid #ff8800;
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 15px rgba(255, 136, 0, 0.3);
+        }
+
+        .card h3 {
+            color: #ff8800;
+            margin-bottom: 15px;
+            font-size: 20px;
+            text-shadow: 0 0 5px rgba(255, 136, 0, 0.5);
+        }
+
+        /* 入力ファイル */
+        .file-input-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+            width: 100%;
+        }
+
+        .file-input-wrapper input[type=file] {
+            position: absolute;
+            left: -9999px;
+        }
+
+        .file-input-label {
+            display: block;
+            padding: 12px;
+            background: linear-gradient(135deg, #3a3a3a 0%, #2a2a2a 100%);
+            border: 2px dashed #ff8800;
+            border-radius: 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .file-input-label:hover {
+            background: linear-gradient(135deg, #4a4a4a 0%, #3a3a3a 100%);
+            border-color: #ffaa00;
+        }
+
+        /* リスト */
+        .slide-list {
+            max-height: 400px;
+            overflow-y: auto;
+            background: #1a1a1a;
+            border: 2px solid #ff8800;
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        .slide-item {
+            background: linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%);
+            border: 1px solid #ff8800;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            box-shadow: 0 2px 8px rgba(255, 136, 0, 0.2);
+        }
+
+        .slide-index {
+            background: linear-gradient(135deg, #ff8800 0%, #ff6600 100%);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 6px;
+            font-weight: bold;
+            min-width: 50px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(255, 136, 0, 0.4);
+        }
+
+        .slide-script {
+            flex: 1;
+        }
+
+        .slide-script textarea {
+            width: 100%;
+            min-height: 60px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            border: 1px solid #ff8800;
+            border-radius: 5px;
+            padding: 10px;
+            font-family: inherit;
+            resize: vertical;
+        }
+
+        /* ステータス表示 */
+        .status {
+            background: linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%);
+            border: 2px solid #ff8800;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+            min-height: 60px;
+            box-shadow: 0 2px 10px rgba(255, 136, 0, 0.3);
+        }
+
+        .status-text {
+            color: #ff8800;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        /* 録音中の表示 */
+        .recording-status {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            background: linear-gradient(135deg, #ff8800 0%, #ff6600 100%);
+            border-radius: 10px;
+            margin-top: 15px;
+            box-shadow: 0 4px 15px rgba(255, 136, 0, 0.5);
+        }
+
+        .recording-status.active {
+            display: block;
+        }
+
+        .recording-pulse {
+            width: 60px;
+            height: 60px;
+            background: #fff;
+            border-radius: 50%;
+            margin: 0 auto 15px;
+            animation: pulse 1s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+        }
+
+        /* ヘルプガイド */
+        .help-guide {
+            background: linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%);
+            border: 2px solid #ff8800;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            box-shadow: 0 4px 15px rgba(255, 136, 0, 0.3);
+        }
+
+        .help-guide h4 {
+            color: #ff8800;
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+
+        .help-guide ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .help-guide li {
+            padding: 8px 0;
+            border-bottom: 1px solid #444;
+        }
+
+        .help-guide li:last-child {
+            border-bottom: none;
+        }
+
+        /* プログレスバー */
+        .progress-container {
+            display: none;
+            margin-top: 15px;
+        }
+
+        .progress-container.active {
+            display: block;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background: #1a1a1a;
+            border: 2px solid #ff8800;
+            border-radius: 15px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff8800 0%, #ff6600 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+            box-shadow: 0 0 10px rgba(255, 136, 0, 0.5);
+        }
+
+        .progress-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-weight: bold;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        }
+
+        /* スクロールバー */
+        ::-webkit-scrollbar {
+            width: 12px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1a1a1a;
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #ff8800 0%, #ff6600 100%);
+            border-radius: 10px;
+            border: 2px solid #1a1a1a;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(180deg, #ffaa00 0%, #ff8800 100%);
+        }
+
+        /* 音声プレイヤー */
+        audio {
+            width: 100%;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <!-- サイドバー -->
+    <div class="sidebar">
+        <h1>MyVoice Maker</h1>
+        
+        <button class="btn" id="csvInputBtn" data-tooltip="原稿csv入力">
+            📄 原稿CSV入力
+        </button>
+        
+        <button class="btn" id="recordBtn" data-tooltip="音声サンプル録音">
+            🎤 録音
+        </button>
+        
+        <button class="btn" id="generateBtn" data-tooltip="音声生成">
+            🔊 音声生成
+        </button>
+        
+        <button class="btn" id="playBtn" data-tooltip="音声再生" disabled>
+            ▶️ 音声再生
+        </button>
+        
+        <button class="btn" id="csvOutputBtn" data-tooltip="原稿csv出力">
+            💾 原稿CSV出力
+        </button>
+        
+        <div class="status">
+            <div class="status-text" id="statusText">準備完了</div>
+        </div>
+
+        <div class="recording-status" id="recordingStatus">
+            <div class="recording-pulse"></div>
+            <div style="color: white; font-weight: bold; font-size: 18px;">録音中...</div>
+            <div id="recordingTime" style="color: white; margin-top: 10px;">00:00 / 00:00</div>
+        </div>
+
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+                <div class="progress-text" id="progressText">0%</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- メインコンテンツ -->
+    <div class="main-content">
+        <div class="header">
+            <h2>🎙️ AI音声生成ツール</h2>
+            <p>Coqui TTS (XTTS v2) で自分の声を使った音声生成</p>
+        </div>
+
+        <!-- 原稿入力カード -->
+        <div class="card">
+            <h3>📝 原稿入力</h3>
+            <div class="file-input-wrapper">
+                <input type="file" id="csvInput" accept=".csv" />
+                <label for="csvInput" class="file-input-label">
+                    クリックまたはドラッグ＆ドロップでCSVファイルを選択
+                </label>
+            </div>
+            <div id="csvFileName" style="margin-top: 10px; color: #ff8800;"></div>
+        </div>
+
+        <!-- スライドリスト -->
+        <div class="card">
+            <h3>📋 原稿リスト</h3>
+            <div class="slide-list" id="slideList">
+                <p style="text-align: center; color: #888;">CSVファイルを読み込んでください</p>
+            </div>
+        </div>
+
+        <!-- 音声プレイヤー -->
+        <div class="card" id="audioPlayerCard" style="display: none;">
+            <h3>🎵 音声プレビュー</h3>
+            <audio id="audioPlayer" controls></audio>
+        </div>
+
+        <!-- ヘルプガイド -->
+        <div class="help-guide">
+            <h4>📖 使い方ガイド</h4>
+            <ul>
+                <li><strong>原稿CSV入力:</strong> CSVファイルを選択してinputフォルダに保存します</li>
+                <li><strong>録音:</strong> マイクから音声サンプルを録音します（3-10秒推奨）</li>
+                <li><strong>音声生成:</strong> 原稿から音声ファイルを生成します（output/tempをクリア後、slide_000.mp3等を出力）</li>
+                <li><strong>音声再生:</strong> 生成された音声を再生します</li>
+                <li><strong>原稿CSV出力:</strong> 編集した原稿をCSVでダウンロードします</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        let currentSlides = [];
+        const API_BASE = window.location.origin;
+
+        // 初期化
+        async function init() {
+            // サーバーのヘルスチェック
+            try {
+                const response = await fetch(`${API_BASE}/api/health`);
+                if (response.ok) {
+                    updateStatus('サーバー接続成功', 'success');
+                }
+            } catch (error) {
+                updateStatus('サーバー接続失敗', 'error');
+            }
+
+            // TTSモデルをウォームアップ
+            try {
+                await fetch(`${API_BASE}/api/warmup_tts`, { method: 'POST' });
+            } catch (error) {
+                console.warn('TTS warmup failed:', error);
+            }
+        }
+
+        // ステータス更新
+        function updateStatus(message, type = 'info') {
+            const statusText = document.getElementById('statusText');
+            statusText.textContent = message;
+            statusText.style.color = type === 'error' ? '#ff4444' : type === 'success' ? '#44ff44' : '#ff8800';
+        }
+
+        // プログレス更新
+        function updateProgress(percent, text = null) {
+            const container = document.getElementById('progressContainer');
+            const fill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            
+            if (percent > 0) {
+                container.classList.add('active');
+                fill.style.width = `${percent}%`;
+                progressText.textContent = text || `${Math.round(percent)}%`;
+            } else {
+                container.classList.remove('active');
+            }
+        }
+
+        // CSV入力
+        document.getElementById('csvInput').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            document.getElementById('csvFileName').textContent = `選択: ${file.name}`;
+            updateStatus('CSVを読み込み中...', 'info');
+
+            try {
+                // サーバーにアップロード
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                const response = await fetch(`${API_BASE}/api/upload/csv`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) throw new Error('CSV upload failed');
+
+                // CSVを解析
+                const text = await file.text();
+                const lines = text.split('\n').filter(line => line.trim());
+                const slides = [];
+
+                for (let i = 1; i < lines.length; i++) {
+                    const match = lines[i].match(/^(\d+),(.*)$/);
+                    if (match) {
+                        slides.push({
+                            index: parseInt(match[1]),
+                            script: match[2].replace(/^"|"$/g, '').trim()
+                        });
+                    }
+                }
+
+                currentSlides = slides;
+                renderSlides();
+                updateStatus('CSV読み込み完了', 'success');
+            } catch (error) {
+                updateStatus('CSV読み込み失敗: ' + error.message, 'error');
+            }
+        });
+
+        // スライドリスト表示
+        function renderSlides() {
+            const container = document.getElementById('slideList');
+            container.innerHTML = '';
+
+            currentSlides.forEach((slide, idx) => {
+                const item = document.createElement('div');
+                item.className = 'slide-item';
+                item.innerHTML = `
+                    <div class="slide-index">${slide.index}</div>
+                    <div class="slide-script">
+                        <textarea id="script_${idx}" rows="3">${slide.script}</textarea>
+                    </div>
+                `;
+                container.appendChild(item);
+
+                // テキスト変更を追跡
+                document.getElementById(`script_${idx}`).addEventListener('input', (e) => {
+                    currentSlides[idx].script = e.target.value;
+                });
+            });
+        }
+
+        // 録音
+        let mediaRecorder;
+        let recordedChunks = [];
+        let recordingStartTime;
+        let recordingDuration = 10; // 秒
+
+        document.getElementById('recordBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('recordBtn');
+            const status = document.getElementById('recordingStatus');
+
+            if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+                // 録音開始
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    recordedChunks = [];
+
+                    mediaRecorder.ondataavailable = (e) => {
+                        if (e.data.size > 0) recordedChunks.push(e.data);
+                    };
+
+                    mediaRecorder.onstop = async () => {
+                        const blob = new Blob(recordedChunks, { type: 'audio/wav' });
+                        await uploadRecording(blob);
+                        status.classList.remove('active');
+                        btn.textContent = '🎤 録音';
+                        updateStatus('録音完了', 'success');
+                    };
+
+                    mediaRecorder.start();
+                    recordingStartTime = Date.now();
+                    status.classList.add('active');
+                    btn.textContent = '⏹️ 停止';
+                    updateStatus('録音中...', 'info');
+
+                    // タイマー更新
+                    const timerInterval = setInterval(() => {
+                        const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+                        const remaining = Math.max(0, recordingDuration - elapsed);
+                        document.getElementById('recordingTime').textContent = 
+                            `${formatTime(elapsed)} / ${formatTime(recordingDuration)}`;
+
+                        if (elapsed >= recordingDuration) {
+                            clearInterval(timerInterval);
+                            mediaRecorder.stop();
+                        }
+                    }, 100);
+                } catch (error) {
+                    updateStatus('マイクアクセス失敗: ' + error.message, 'error');
+                }
+            } else {
+                // 録音停止
+                mediaRecorder.stop();
+            }
+        });
+
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        async function uploadRecording(blob) {
+            const formData = new FormData();
+            formData.append('file', blob, 'sample.wav');
+
+            try {
+                // 録音をサーバーに送信（実装が必要）
+                updateStatus('録音をアップロード中...', 'info');
+                // TODO: サーバー側のエンドポイント実装
+                updateStatus('録音保存完了', 'success');
+            } catch (error) {
+                updateStatus('録音アップロード失敗: ' + error.message, 'error');
+            }
+        }
+
+        // 音声生成
+        document.getElementById('generateBtn').addEventListener('click', async () => {
+            if (currentSlides.length === 0) {
+                updateStatus('原稿を読み込んでください', 'error');
+                return;
+            }
+
+            updateStatus('output/tempをクリア中...', 'info');
+
+            try {
+                // tempフォルダをクリア
+                await fetch(`${API_BASE}/api/clear_temp`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+
+                updateStatus('音声生成中...', 'info');
+                updateProgress(0);
+
+                // 各スライドの音声を生成
+                for (let i = 0; i < currentSlides.length; i++) {
+                    const slide = currentSlides[i];
+                    updateProgress((i / currentSlides.length) * 100, `${i + 1}/${currentSlides.length}`);
+
+                    if (!slide.script.trim()) continue;
+
+                    const response = await fetch(`${API_BASE}/api/generate_audio`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            slide_index: slide.index,
+                            script: slide.script,
+                            resolution: '720p'
+                        }),
+                        timeout: 60000 // 60秒タイムアウト
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`音声生成失敗 (スライド${slide.index})`);
+                    }
+                }
+
+                updateProgress(100, '完了');
+                updateStatus('音声生成完了', 'success');
+                document.getElementById('playBtn').disabled = false;
+                
+                setTimeout(() => updateProgress(0), 2000);
+            } catch (error) {
+                updateStatus('音声生成失敗: ' + error.message, 'error');
+                updateProgress(0);
+            }
+        });
+
+        // 音声再生
+        document.getElementById('playBtn').addEventListener('click', () => {
+            if (currentSlides.length === 0) return;
+
+            const audioPlayer = document.getElementById('audioPlayer');
+            const audioCard = document.getElementById('audioPlayerCard');
+            
+            // 最初のスライドの音声を再生
+            audioPlayer.src = `${API_BASE}/output/temp/slide_000.mp3`;
+            audioCard.style.display = 'block';
+            audioPlayer.play();
+            updateStatus('音声再生中', 'info');
+        });
+
+        // CSV出力
+        document.getElementById('csvOutputBtn').addEventListener('click', () => {
+            if (currentSlides.length === 0) {
+                updateStatus('原稿がありません', 'error');
+                return;
+            }
+
+            let csvContent = 'index,script\n';
+            currentSlides.forEach(slide => {
+                csvContent += `${slide.index},"${slide.script}"\n`;
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = '原稿.csv';
+            link.click();
+            
+            updateStatus('CSV出力完了', 'success');
+        });
+
+        // ドラッグ&ドロップ対応
+        const dropZone = document.querySelector('.file-input-label');
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = '#ffaa00';
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.style.borderColor = '#ff8800';
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = '#ff8800';
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                document.getElementById('csvInput').files = files;
+                document.getElementById('csvInput').dispatchEvent(new Event('change'));
+            }
+        });
+
+        // 初期化実行
+        init();
+    </script>
+</body>
+</html>
