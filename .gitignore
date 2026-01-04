@@ -37,11 +37,6 @@ Thumbs.db
 
 # Temp files
 output/temp/
-output/*.webm
-output/*.mp3
-output/*.wav
-output/*.png
-output/*.md
 test_tmp/
 *.tmp
 *.log
