@@ -1,4 +1,4 @@
-# CLI契約: Slide MyVoice Maker
+# CLI契約: MyVoice Maker
 
 **日付**: 2026-01-05
 **対象**: src/main.py
@@ -15,21 +15,10 @@ py -3.10 src/main.py [オプション]
 
 | 引数 | 短縮形 | 型 | デフォルト | 説明 |
 |------|--------|-----|-----------|------|
-| `--input` | - | string | `input/` | 入力ディレクトリパス |
-| `--output` | - | string | `output/` | 出力ディレクトリパス |
 | `--script` | - | string | `input/原稿.csv` | 原稿CSVファイルパス |
-| `--resolution` | - | string | `720` | 出力解像度 |
-
-### --resolution 有効値
-
-| 値 | 出力幅 | 出力高さ |
-|----|--------|----------|
-| `720` | 1280 | 720 |
-| `720p` | 1280 | 720 |
-| `1080` | 1920 | 1080 |
-| `1080p` | 1920 | 1080 |
-| `1440` | 2560 | 1440 |
-| `1440p` | 2560 | 1440 |
+| `--output` | - | string | `output/` | 生成MP3の出力ディレクトリ |
+| `--speaker-wav` | - | string | 自動選択 | 話者サンプルWAV（未指定時は `src/voice/models/samples/` の最新 `sample_XX.wav` を使用） |
+| `--no-overwrite` | - | flag | False | 既存の `output/slide_XXX.mp3` を上書きしない |
 
 ### 使用例
 
@@ -37,15 +26,14 @@ py -3.10 src/main.py [オプション]
 # デフォルト設定
 py -3.10 src/main.py
 
-# 1080p出力
-py -3.10 src/main.py --resolution 1080p
+# 出力先を変更
+py -3.10 src/main.py --output .\\output
 
-# フルオプション
-py -3.10 src/main.py \
-  --input ./input \
-  --output ./output \
-  --script ./input/原稿.csv \
-  --resolution 1440p
+# 話者サンプルを明示指定
+py -3.10 src/main.py --speaker-wav .\\src\\voice\\models\\samples\\sample_01.wav
+
+# 既存ファイルを上書きしない
+py -3.10 src/main.py --no-overwrite
 ```
 
 ## 終了コード
@@ -61,11 +49,7 @@ py -3.10 src/main.py \
 ### 正常時
 
 ```
-Output resolution: 1920px width (1080p)
-Cleared temp folder: output/temp/プレゼン資料
-Processing: プレゼン資料.pdf
-...
-Video saved: output/プレゼン資料.webm
+生成完了: 12 件
 ```
 
 ### エラー時
@@ -77,6 +61,4 @@ Please create input\原稿.csv (columns: index, script).
 
 ## 環境変数（処理時に設定）
 
-| 変数 | 設定タイミング | 値 |
-|------|--------------|-----|
-| `OUTPUT_MAX_WIDTH` | --resolution解析後 | 1280/1920/2560 |
+CLIは環境変数を必須としない。

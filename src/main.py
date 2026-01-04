@@ -1,77 +1,105 @@
-import os
-import asyncio
-import glob
+from __future__ import annotations
+
 import argparse
+import sys
+from pathlib import Path
 
-from processor import process_pdf_and_script, clear_temp_folder
 
-# 解像度マッピング
-RESOLUTION_MAP = {
-    "720": 1280,
-    "720p": 1280,
-    "1080": 1920,
-    "1080p": 1920,
-    "1440": 2560,
-    "1440p": 2560,
-}
+# `python src/main.py ...` で実行されるケース（e2e含む）では、sys.path[0] が src/ になり
+# `import src...` が解決できない。リポジトリルートを明示的に追加して安定させる。
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-async def main():
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from src.voice.voice_generator import get_voice_generator, pick_default_speaker_wav
+
+
+def main() -> int:
+    repo_root = Path(__file__).resolve().parents[1]
 
     parser = argparse.ArgumentParser(
-        description="Generate narrated videos (webm) from PDF pages + narration script CSV.",
-    )
-    parser.add_argument(
-        "--input",
-        default=os.path.join(base_dir, "input"),
-        help="Input directory containing PDF file(s).",
-    )
-    parser.add_argument(
-        "--output",
-        default=os.path.join(base_dir, "output"),
-        help="Output directory for generated webm files.",
+        description="Generate MP3 narration from input/原稿.csv using Coqui XTTS v2.",
     )
     parser.add_argument(
         "--script",
-        default=os.path.join(base_dir, "input", "原稿.csv"),
+        default=str(repo_root / "input" / "原稿.csv"),
         help="Narration script CSV path (default: input\\原稿.csv).",
     )
     parser.add_argument(
-        "--resolution",
-        default="720",
-        choices=["720", "720p", "1080", "1080p", "1440", "1440p"],
-        help="Output video resolution (default: 720p). Options: 720/720p, 1080/1080p, 1440/1440p.",
+        "--output",
+        default=str(repo_root / "output"),
+        help="Output directory for generated mp3 files.",
+    )
+    parser.add_argument(
+        "--speaker-wav",
+        default="",
+        help="Speaker WAV path (default: auto from src/voice/models/samples).",
+    )
+    parser.add_argument(
+        "--index",
+        type=int,
+        default=None,
+        help="Generate only the specified index from the CSV (default: generate all rows).",
+    )
+    parser.add_argument(
+        "--no-overwrite",
+        action="store_true",
+        help="Do not overwrite existing output files.",
     )
     args = parser.parse_args()
 
-    input_dir = args.input
-    output_dir = args.output
-    script_csv_path = args.script
-    
-    # 解像度設定を環境変数にセット
-    resolution_width = RESOLUTION_MAP.get(args.resolution, 1280)
-    os.environ["OUTPUT_MAX_WIDTH"] = str(resolution_width)
-    print(f"Output resolution: {resolution_width}px width ({args.resolution})")
+    script_csv = Path(args.script)
+    out_dir = Path(args.output)
 
-    os.makedirs(output_dir, exist_ok=True)
-
-    if not os.path.exists(script_csv_path):
-        print(f"Script CSV file not found: {script_csv_path}")
+    if not script_csv.exists():
+        print(f"Script CSV file not found: {script_csv}")
         print("Please create input\\原稿.csv (columns: index, script).")
-        return
+        return 2
 
-    pdf_files = glob.glob(os.path.join(input_dir, "*.pdf"))
-    if not pdf_files:
-        print(f"No PDF files found in input directory: {input_dir}")
-        return
+    if args.speaker_wav:
+        speaker = Path(args.speaker_wav)
+    else:
+        speaker = pick_default_speaker_wav()
 
-    for pdf_path in pdf_files:
-        # temp上書き: 処理前にtempフォルダをクリア
-        base_name = os.path.splitext(os.path.basename(pdf_path))[0]
-        temp_dir = os.path.join(output_dir, "temp", base_name)
-        clear_temp_folder(temp_dir)
-        
-        await process_pdf_and_script(pdf_path, script_csv_path, output_dir)
+    if speaker is None or not speaker.exists():
+        print("Speaker sample not found.")
+        print("Place sample_01.wav etc under src\\voice\\models\\samples.")
+        return 2
+
+    vg = get_voice_generator()
+    if args.index is not None:
+        # まず CSV を読み、指定indexの行だけ生成する。
+        # VoiceGenerator は公開APIとして load_script_csv を持たないため、モジュール関数を使う。
+        from src.voice.voice_generator import load_script_csv
+
+        rows = load_script_csv(script_csv)
+
+        target = next((r for r in rows if r.index == args.index), None)
+        if target is None:
+            print(f"Index not found in CSV: {args.index}")
+            return 2
+        if not target.script.strip():
+            print(f"Script is empty for index: {args.index}")
+            return 2
+
+        out_path = vg.generate_one(
+            index=target.index,
+            script=target.script,
+            speaker_wav=speaker,
+            output_dir=out_dir,
+            overwrite=not args.no_overwrite,
+        )
+        print(f"生成完了: {out_path}")
+    else:
+        generated = vg.generate_from_csv(
+            script_csv_path=script_csv,
+            speaker_wav=speaker,
+            output_dir=out_dir,
+            overwrite=not args.no_overwrite,
+        )
+        print(f"生成完了: {len(generated)} 件")
+    return 0
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    raise SystemExit(main())

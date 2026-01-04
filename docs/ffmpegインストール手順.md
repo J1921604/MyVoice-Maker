@@ -127,13 +127,14 @@ libavformat    62.  8.102 / 62.  8.102
 
 ```powershell
 # プロジェクトディレクトリに移動
-cd C:\Users\h-ham\spec-kit\12_MyVoice-Maker
+cd C:\Users\ユーザー名\spec-kit\12_MyVoice-Maker
 
 # 仮想環境を有効化（.venvがある場合）
 .\.venv\Scripts\Activate.ps1
 
-# 音声生成テスト（話者サンプルの録音が必要）
-py -3.10 src\voice\create_voice.py
+# 音声サンプルを作る（推奨: Web UI の「録音」）
+# 既存の音声ファイルを sample_XX.wav に変換して追加する場合:
+py -3.10 src\voice\create_voice.py --input path\to\recording.webm
 ```
 
 成功時の出力例：

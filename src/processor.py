@@ -1,4 +1,5 @@
 import os
+import asyncio
 import subprocess
 import wave
 import contextlib
@@ -15,6 +16,35 @@ if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.Resampling.LANCZOS
 
 import imageio_ffmpeg
+
+
+def _ffmpeg_encode_to_mp3(input_wav: str, output_mp3: str) -> None:
+    """WAV を MP3 にエンコードする（出力を常に .mp3 として正しくする）。"""
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    os.makedirs(os.path.dirname(output_mp3), exist_ok=True)
+    args = [
+        ffmpeg,
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostats",
+        "-i",
+        input_wav,
+        "-c:a",
+        "libmp3lame",
+        "-q:a",
+        "4",
+        output_mp3,
+    ]
+    proc = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if proc.returncode != 0:
+        stderr = proc.stderr or b""
+        try:
+            msg = stderr.decode("utf-8")
+        except Exception:
+            msg = stderr.decode("utf-8", errors="replace")
+        raise RuntimeError(f"FFmpeg mp3 encode failed (code={proc.returncode}): {msg}")
 
 
 def _patch_torchaudio_load() -> None:
@@ -687,24 +717,38 @@ async def generate_voice(text, output_path, voice="ja-JP-NanamiNeural", use_coqu
     max_length = 500
     if len(text) > max_length:
         import tempfile
-        segments = [text[i:i+max_length] for i in range(0, len(text), max_length)]
-        temp_files = []
-        
-        for i, segment in enumerate(segments):
-            temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-            temp_files.append(temp_file.name)
-            temp_file.close()
-            await generate_voice(segment, temp_file.name, voice, use_coqui)
-        
-        # 複数の音声ファイルを結合
-        _concatenate_audio_files(temp_files, output_path)
-        
-        # 一時ファイルを削除
-        for temp_file in temp_files:
-            try:
-                os.remove(temp_file)
-            except:
-                pass
+
+        segments = [text[i : i + max_length] for i in range(0, len(text), max_length)]
+        wav_segments: list[str] = []
+
+        for segment in segments:
+            tf = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            tf.close()
+            wav_segments.append(tf.name)
+            await generate_voice(segment, tf.name, voice, use_coqui)
+
+        # まず WAV として結合し、必要なら MP3 へエンコード
+        concat_wav = None
+        try:
+            if str(output_path).lower().endswith(".mp3"):
+                concat = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                concat.close()
+                concat_wav = concat.name
+                await asyncio.to_thread(_concatenate_audio_files, wav_segments, concat_wav)
+                await asyncio.to_thread(_ffmpeg_encode_to_mp3, concat_wav, output_path)
+            else:
+                await asyncio.to_thread(_concatenate_audio_files, wav_segments, output_path)
+        finally:
+            for p in wav_segments:
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
+            if concat_wav:
+                try:
+                    os.remove(concat_wav)
+                except Exception:
+                    pass
         return
 
     # 話者サンプル WAV（デフォルトは自録りファイル）
@@ -719,17 +763,45 @@ async def generate_voice(text, output_path, voice="ja-JP-NanamiNeural", use_coqu
         )
 
     try:
+        import tempfile
+        import asyncio
+
         # キャッシュされたTTSモデルを取得（初回のみロード）
-        tts = _get_tts_model()
-        
+        # 取得/推論は重いのでイベントループをブロックしないよう thread に逃がす。
+        tts = await asyncio.to_thread(_get_tts_model)
+
         print(f"Generating voice with Coqui TTS: {text[:50]}...")
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        tts.tts_to_file(
-            text=text,
-            speaker_wav=str(speaker_wav),
-            language="ja",
-            file_path=output_path,
-        )
+
+        # Coqui TTS は WAV 出力が安定。MP3 拡張子へ直接書くと実体が WAV になる/失敗するため、
+        # 必ず一旦 WAV を生成してから必要に応じて MP3 へ変換する。
+        if str(output_path).lower().endswith(".mp3"):
+            tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            tmp.close()
+            tmp_wav = tmp.name
+            try:
+                await asyncio.to_thread(
+                    tts.tts_to_file,
+                    text=text,
+                    speaker_wav=str(speaker_wav),
+                    language="ja",
+                    file_path=tmp_wav,
+                )
+                await asyncio.to_thread(_ffmpeg_encode_to_mp3, tmp_wav, output_path)
+            finally:
+                try:
+                    os.remove(tmp_wav)
+                except Exception:
+                    pass
+        else:
+            await asyncio.to_thread(
+                tts.tts_to_file,
+                text=text,
+                speaker_wav=str(speaker_wav),
+                language="ja",
+                file_path=output_path,
+            )
+
         print(f"Voice generated: {output_path}")
     except OSError as e:
         # TorchCodec が見つからない場合に明示的なメッセージを出す

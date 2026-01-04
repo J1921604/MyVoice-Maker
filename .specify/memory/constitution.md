@@ -32,7 +32,7 @@
 # MyVoice Maker 憲法
 
 **バージョン**: 1.0.0  
-**最終更新**: 2026-1-5
+**最終更新**: 2026-01-05
 
 ## コア原則
 
@@ -69,7 +69,7 @@
 
 **ルール**:
 
-- 音声生成処理: スライド1枚あたり10秒以内を目標とする
+- 音声生成処理: 原稿1行あたり10秒以内を目標とする
 - メモリ使用量: 処理対象データサイズの5倍以内に抑える
 - 出力ファイルサイズ: 入力データ+音声の2倍以内を目安とする
 - パフォーマンス劣化は受入基準で検出する
@@ -108,7 +108,7 @@
 
 - 機密データの平文保存を禁止（暗号化・ハッシュ化必須）
 - APIキー・認証情報はコードに埋め込まず環境変数を使用する
-- 外部通信（Edge TTS API等）はHTTPSを必須とする
+- 外部通信（将来拡張を含む）はHTTPSを必須とする
 
 ### 依存関係制約
 
@@ -149,8 +149,8 @@ flowchart TD
 
 **必須のE2E**:
 
-- CLI: `py -3.10 src\main.py` を起点に、PDF→WebM生成が成功すること
-- Web: `index.html` で PDF/原稿CSV→画像・音声生成→動画生成→動画出力が **空ファイルにならない**こと
+- CLI: `py -3.10 src\main.py` を起点に、原稿CSV→MP3生成が成功すること
+- Web: `index.html` で 原稿CSV→（必要なら録音→`sample_XX.wav`保存）→音声生成→音声再生が **空ファイルにならない**こと
 
 ### レビュー要件
 
@@ -167,7 +167,7 @@ flowchart TD
 ```bash
 git checkout main
 git checkout -b <番号>-<短い名前>
-# 例: git checkout -b 001-video-export
+# 例: git checkout -b 001-audio-export
 ```
 
 ### 実装ブランチ（仕様ブランチから派生）
@@ -175,7 +175,7 @@ git checkout -b <番号>-<短い名前>
 ```bash
 git checkout 001-<topic>
 git checkout -b feature/impl-<番号>-<短い名前>
-# 例: git checkout -b feature/impl-001-video-export
+# 例: git checkout -b feature/impl-001-audio-export
 ```
 
 ### ブランチフロー
@@ -280,8 +280,7 @@ flowchart LR
 1. **音声サンプル録音**: 3-600秒間の自分の声を録音
 2. **原稿CSV入力**: UTF-8/Shift-JIS対応のCSVアップロード
 3. **音声生成**: Coqui TTS (XTTS v2)で自然な日本語音声生成
-4. **タイムアウト対策**: 500文字以上の長文自動分割
-5. **ファイル管理**: output/temp自動クリア（リトライ機能付き）
+4. **ファイル管理**: 音声生成開始時に output/temp を全削除し、中間生成物（wav等）の混線を防ぐ
 
 ## プロダクト機能仕様
 
@@ -293,13 +292,13 @@ flowchart LR
 flowchart TD
     A[原稿CSV入力] --> B[input/原稿.csv上書き保存]
     B --> C[音声生成ボタン]
-    C --> D[output/temp全クリア]
+    C --> D[output/temp をクリア]
     D --> E[Coqui TTS XTTS v2<br/>音声生成]
-    E --> F[output/temp/slide_000.mp3等保存]
+    E --> F[output/slide_000.mp3等保存]
     F --> G[音声再生]
     B --> H[原稿CSV出力]
     I[録音ボタン] --> J[マイクから録音]
-    J --> K[src/voice/models/samples/sample.wav保存]
+    J --> K[src/voice/models/samples/sample_01.wav等保存（上書き禁止）]
 ```
 
-**Version**: 1.0.0 | **Ratified**: 2026-1-5 | **Last Amended**: 2026-1-5
+**Version**: 1.0.0 | **Ratified**: 2026-01-05 | **Last Amended**: 2026-01-05

@@ -1,122 +1,149 @@
-# Web API契約: Slide MyVoice Maker
+# Web API契約: MyVoice Maker
 
 **日付**: 2026-01-05
-**対象**: index.html（サーバー連携）
+**対象**: `index.html`（Web UI）↔ `src/server.py`（FastAPI）
 
 ## 概要
 
-Web UIはFastAPIサーバー（src/server.py）と連携して動作する。以下はJavaScript内部のインターフェースとサーバーAPIの定義である。
+Web UI は FastAPI サーバー（`src/server.py`）と同一オリジンで動作する。
 
-## 解像度設定インターフェース
+- 推奨アクセス: `http://127.0.0.1:8000/`
+- `file://` で `index.html` を直接開いた場合、`window.location.origin` が `"null"` になるため、UI は `http://127.0.0.1:8000` を API の接続先にフォールバックする。
 
-### RESOLUTION_OPTIONS
+## 共通
 
-```javascript
-const RESOLUTION_OPTIONS = [
-    { label: '720p (1280x720)', value: '720p', width: 1280, height: 720 },
-    { label: '1080p (1920x1080)', value: '1080p', width: 1920, height: 1080 },
-    { label: '1440p (2560x1440)', value: '1440p', width: 2560, height: 1440 },
-];
+- **Base URL**: `http://127.0.0.1:8000`
+- **Content-Type**:
+  - JSON: `application/json`
+  - ファイルアップロード: `multipart/form-data`
+- **静的ファイル配信**: `/` 以下はリポジトリルートが静的にマウントされる（`output/` もブラウザから参照可能）。
+
+## エンドポイント
+
+### GET /api/health
+
+サーバー死活確認。
+
+**Response**: `200`
+
+```json
+{ "status": "ok" }
 ```
 
-### ResolutionOption型
+---
 
-| プロパティ | 型 | 説明 |
-|------------|-----|------|
-| label | string | UI表示用ラベル |
-| value | string | 内部識別値 |
-| width | number | 出力幅（px） |
-| height | number | 出力高さ（px） |
+### POST /api/warmup_tts
 
-## React State
+Coqui TTS (XTTS v2) の初回ロードを先に行う。重い処理はイベントループをブロックしないようスレッドで実行される。
 
-### selectedResolution
+**Response**: `200`
 
-```javascript
-const [selectedResolution, setSelectedResolution] = useState('720p');
+```json
+{ "status": "ready", "message": "Coqui TTS model loaded successfully" }
 ```
 
-| プロパティ | 型 | デフォルト | 説明 |
-|------------|-----|-----------|------|
-| selectedResolution | string | '720p' | 現在選択中の解像度 |
+---
 
-## 関数インターフェース
+### POST /api/upload/csv
 
-### getResolutionDimensions()
+原稿CSVを `input/原稿.csv` に上書き保存する。
 
-選択中の解像度に対応する幅・高さを取得する。
+**Request**: `multipart/form-data`
 
-**シグネチャ**:
+- `file`: `.csv`
 
-```javascript
-const getResolutionDimensions = () => {
-    const res = RESOLUTION_OPTIONS.find(r => r.value === selectedResolution);
-    return res || RESOLUTION_OPTIONS[0];
-};
+**Response**: `200`
+
+```json
+{ "saved": "...\\input\\原稿.csv", "filename": "原稿.csv" }
 ```
 
-**戻り値**:
+---
 
-| プロパティ | 型 | 説明 |
-|------------|-----|------|
-| label | string | UI表示用ラベル |
-| value | string | 内部識別値 |
-| width | number | 出力幅（px） |
-| height | number | 出力高さ（px） |
+### POST /api/upload/recording
 
-### exportVideo()
+ブラウザ録音ファイルを受け取り、XTTS が確実に読める **PCM 16-bit mono WAV（24kHz/mono）** に変換して `src/voice/models/samples/` 配下に保存する。
 
-動画をエクスポートする。
+保存は **上書き禁止** で、`sample_01.wav` / `sample_02.wav` ... の連番になる。
 
-**シグネチャ**:
+**Request**: `multipart/form-data`
 
-```javascript
-const exportVideo = async () => { ... }
+- `file`: 録音ファイル（実体はFFmpegで変換する）
+
+**Response**: `200`
+
+```json
+{ "saved": "...\\src\\voice\\models\\samples\\sample_01.wav", "filename": "sample_01.wav" }
 ```
 
-**動作**:
+---
 
-1. `getResolutionDimensions()` で解像度取得
-2. canvasサイズを設定
-3. MediaRecorderで録画
-4. WebMファイルとしてダウンロード
+### POST /api/clear_temp
 
-## UIコンポーネント
+`output/temp` の削除・再作成。
 
-### 解像度選択ドロップダウン
+**Request (JSON)**
 
-```jsx
-<select
-    value={selectedResolution}
-    onChange={(e) => setSelectedResolution(e.target.value)}
-    className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-sm border border-white/10 cursor-pointer"
->
-    {RESOLUTION_OPTIONS.map(opt => (
-        <option key={opt.value} value={opt.value}>{opt.label}</option>
-    ))}
-</select>
+```json
+{}
 ```
 
-## 状態遷移
+**Response**: `200`
 
-```mermaid
-stateDiagram-v2
-    [*] --> 初期状態: ページロード
-    初期状態 --> 720p選択: デフォルト
+```json
+{ "ok": true, "cleared": "...\\output\\temp\\job_..." }
+```
 
-    720p選択 --> 1080p選択: ユーザー選択
-    720p選択 --> 1440p選択: ユーザー選択
-    1080p選択 --> 720p選択: ユーザー選択
-    1080p選択 --> 1440p選択: ユーザー選択
-    1440p選択 --> 720p選択: ユーザー選択
-    1440p選択 --> 1080p選択: ユーザー選択
+---
 
-    720p選択 --> エクスポート中: exportVideo()
-    1080p選択 --> エクスポート中: exportVideo()
-    1440p選択 --> エクスポート中: exportVideo()
+### POST /api/generate_audio
 
-    エクスポート中 --> 完了: ダウンロード開始
-    完了 --> 720p選択: 次の操作待ち
-    完了 --> 1080p選択: 次の操作待ち
-    完了 --> 1440p選択: 次の操作待ち
+単一行の音声（MP3）を生成して `output/slide_XXX.mp3` に保存する。
+
+**Request (JSON)**
+
+```json
+{
+  "slide_index": 0,
+  "script": "こんにちは",
+  "overwrite": true
+}
+```
+
+**Response**: `200`
+
+```json
+{ "audio_url": "/output/slide_000.mp3", "path": "...\\output\\slide_000.mp3" }
+```
+
+備考:
+
+- 出力先がリポジトリ外（`SVM_OUTPUT_DIR` の差し替え等）で静的配信できない場合、`audio_url` は空文字になる。
+
+---
+
+### POST /api/generate_from_csv
+
+`input/原稿.csv`（もしくは直近アップロードのCSV）から音声を一括生成して `output/` に保存する。
+
+**Request (JSON)**
+
+```json
+{ "overwrite": true, "speaker_wav": null }
+```
+
+- `speaker_wav`: 指定がある場合はその話者サンプルを優先する（相対パスはリポジトリルート基準）。
+
+**Response**: `200`
+
+```json
+{
+  "ok": true,
+  "count": 2,
+  "items": [
+    { "index": 0, "audio_url": "/output/slide_000.mp3", "path": "...\\output\\slide_000.mp3" },
+    { "index": 1, "audio_url": "/output/slide_001.mp3", "path": "...\\output\\slide_001.mp3" }
+  ],
+  "speaker_wav": "...\\src\\voice\\models\\samples\\sample_02.wav"
+}
 ```

@@ -1,8 +1,8 @@
 ﻿# デプロイガイド (GitHub Pages + ローカルバックエンド)
 
 **バージョン**: 1.0.0  
-**日付**: 2026-1-5  
-**リポジトリ**: https://github.com/J1921604/Slide-MyVoice-Maker
+**日付**: 2026-01-05  
+**リポジトリ**: https://github.com/J1921604/MyVoice-Maker
 
 ## アーキテクチャ概要
 - フロントエンド: 静的 `index.html` を GitHub Pages で配信
@@ -46,6 +46,7 @@ cp README.md dist/README.md
 - Coqui TTS用の音声サンプル（`src/voice/models/samples/sample.wav`）が必要
   - 録音方法: `py -3.10 src\voice\create_voice.py`
   - 10-30秒の自分の声を録音
+  - Web UIの録音ボタンを使う場合: ブラウザ録音（WebM等）をサーバーがFFmpegでPCM WAVに変換し、最終的に `sample.wav` に保存します
 
 ### ワンクリック（推奨）
 ```powershell
@@ -64,7 +65,7 @@ start http://127.0.0.1:8000/index.html
 1. ヘッダー左の **PDF入力** でPDFを選択（input/に保存され、スライド展開されます）
 2. **原稿CSV入力** でCSVを読み込み、毎回 `input/原稿.csv` に上書き保存
 3. 解像度・字幕ON/OFF・動画形式(WebM/MP4)を選択
-4. **画像・音声生成** で `output/temp` をクリアしつつ素材を再生成
+4. **画像・音声生成** で `output/temp/{scope}` をクリアしつつ素材を再生成（連続実行時のロック/混線を回避）
 5. **動画生成** で `output/<PDF名>.webm|mp4` を上書き生成（字幕ONならASS焼き込み）
 6. **動画出力** で output フォルダ内の動画をダウンロード
 7. **PPTX出力** や **原稿CSV出力** も利用可能
@@ -92,8 +93,8 @@ start http://127.0.0.1:8000/index.html
 - **字幕が切り替わらない**: 句読点でチャンク分割し、最小セグメント幅0.15秒を確保するASSを生成しています。CSVの句読点を確認してください。FPSを30fpsにすることで改善します。
 
 ## リンク
-- リポジトリ: https://github.com/J1921604/Slide-MyVoice-Maker
-- 完全仕様書: https://github.com/J1921604/Slide-MyVoice-Maker/blob/main/docs/%E5%AE%8C%E5%85%A8%E4%BB%95%E6%A7%98%E6%9B%B8.md
-- 仕様 (spec): https://github.com/J1921604/Slide-MyVoice-Maker/blob/main/specs/001-Slide-MyVoice-Maker/spec.md
-- 計画 (plan): https://github.com/J1921604/Slide-MyVoice-Maker/blob/main/specs/001-Slide-MyVoice-Maker/plan.md
-- タスク (tasks): https://github.com/J1921604/Slide-MyVoice-Maker/blob/main/specs/001-Slide-MyVoice-Maker/tasks.md
+- リポジトリ: https://github.com/J1921604/MyVoice-Maker
+- 完全仕様書: https://github.com/J1921604/MyVoice-Maker/blob/main/docs/%E5%AE%8C%E5%85%A8%E4%BB%95%E6%A7%98%E6%9B%B8.md
+- 仕様 (spec): https://github.com/J1921604/MyVoice-Maker/blob/main/specs/001-MyVoice-Maker/spec.md
+- 計画 (plan): https://github.com/J1921604/MyVoice-Maker/blob/main/specs/001-MyVoice-Maker/plan.md
+- タスク (tasks): https://github.com/J1921604/MyVoice-Maker/blob/main/specs/001-MyVoice-Maker/tasks.md

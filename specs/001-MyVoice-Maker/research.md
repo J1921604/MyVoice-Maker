@@ -1,154 +1,85 @@
-# 調査結果: Slide MyVoice Maker
+# 調査結果: MyVoice Maker
 
-**日付**: 2026-1-5
+**日付**: 2026-01-05
 **Phase**: 0 - 調査
 
 ## 調査概要
 
-本ドキュメントは、Slide MyVoice Makerの解像度選択機能およびtemp上書き機能の実装に必要な技術調査結果をまとめたものである。
+本ドキュメントは、MyVoice Maker（`index.html` + `src/server.py` + `src/voice/voice_generator.py`）における、
+**UIの固着/無反応**・**CSV文字化け**・**録音保存**・**音声生成タイムアウト**の再発防止のための技術判断をまとめる。
 
-## 調査項目
+## 調査項目と決定
 
-### 1. 解像度指定方式の決定
+### 1. Web UI が「無反応」に見える原因
 
-**決定**: 環境変数 `OUTPUT_MAX_WIDTH` を使用
+**原因候補**:
 
-**根拠**:
-- 既存の `processor.py` が `_get_output_max_width()` で環境変数を参照している
-- 新規インターフェース追加より既存パターンの活用が保守性向上に寄与
-- CLI引数から環境変数への変換は `main.py` で一元管理可能
+- `file://` で `index.html` を直接開くと `window.location.origin === "null"` となり、API URL が壊れて通信できない。
+- FastAPI の `async` エンドポイント内で、Coqui XTTS v2 のモデルロード/推論を同期実行すると **イベントループがブロック**され、
+  その間の `/api/upload/csv` などが応答不能に見える。
+- JS例外が発生するとイベントハンドラが登録されず、クリックが「無反応」に見える。
 
-**代替案と却下理由**:
+**決定**:
 
-| 代替案 | 却下理由 |
-|--------|----------|
-| 関数引数で直接渡す | processor.py全体の変更が必要になり影響範囲が大きい |
-| 設定ファイル（JSON/YAML） | ワンクリック実行の簡便さが損なわれる |
-| グローバル変数 | テスタビリティが低下する |
-
----
-
-### 2. tempフォルダ削除方式の決定
-
-**決定**: `shutil.rmtree()` を使用
-
-**根拠**:
-- Python標準ライブラリであり追加依存なし
-- ディレクトリを再帰的に削除可能
-- クロスプラットフォーム対応
-
-**エラーハンドリング**:
-
-```python
-try:
-    shutil.rmtree(temp_dir)
-except PermissionError:
-    # ファイルロック時は警告ログを出力して続行
-    print(f"Warning: Could not clear temp folder: {e}")
-```
-
-**代替案と却下理由**:
-
-| 代替案 | 却下理由 |
-|--------|----------|
-| os.remove() + os.rmdir() | ファイル単位で削除が必要で複雑 |
-| pathlib.Path.unlink() | ディレクトリ対応が不十分 |
-| subprocess + rm/rd | クロスプラットフォーム対応が複雑 |
+- UI側: `origin === "null"` のとき `http://127.0.0.1:8000` を API_BASE とする。
+- サーバー側: 重い処理（モデルロード/推論/FFmpeg変換）は `asyncio.to_thread(...)` でスレッドへ逃がす。
+- UI側: `window.onerror` / `unhandledrejection` でステータス欄へエラーを表示する。
 
 ---
 
-### 3. UI解像度選択の実装方式
+### 2. tempクリア失敗（Windowsのファイルロック）
 
-**決定**: React state + select要素
+**課題**:
 
-**根拠**:
-- 既存の `index.html` がReact（Babel）を使用している
-- 他のUI要素（ボイス選択など）と同じパターンで統一性確保
-- Tailwind CSSでスタイリング済み
+- ブラウザの音声プレビュー等で `output/temp` 配下のファイルがロックされると、削除に失敗しうる。
 
-**実装パターン**:
+**決定**:
 
-```javascript
-const [selectedResolution, setSelectedResolution] = useState('720p');
-const RESOLUTION_OPTIONS = [
-    { label: '720p (1280x720)', value: '720p', width: 1280, height: 720 },
-    { label: '1080p (1920x1080)', value: '1080p', width: 1920, height: 1080 },
-    { label: '1440p (2560x1440)', value: '1440p', width: 2560, height: 1440 },
-];
-```
+- `output/temp` は **毎回全削除→再作成**する（中間生成物の残存を防ぐ）。
+- UI は音声生成の直前に API `POST /api/clear_temp` を呼び出し、失敗時は生成を開始しない。
 
 ---
 
-### 4. 解像度とアスペクト比
+### 3. ブラウザ録音は WAV にならない
 
-**決定**: 16:9アスペクト比を採用
+**事実**:
 
-**解像度マッピング**:
+- `MediaRecorder` の録音データは環境依存の形式になり、WAV とは限らない。
+- そのまま保存すると XTTS が読み込めず、エラーや沈黙の原因になりうる。
 
-| 選択肢 | 幅 | 高さ | アスペクト比 |
-|--------|-----|------|--------------|
-| 720p   | 1280 | 720 | 16:9 |
-| 1080p  | 1920 | 1080 | 16:9 |
-| 1440p  | 2560 | 1440 | 16:9 |
+**決定**:
 
-**根拠**:
-- PDFスライドは通常16:9または4:3
-- 16:9が動画配信プラットフォーム（YouTube等）の標準
-- 4:3スライドは自動レターボックス処理で対応
+- UI は録音データをアップロードする。
+- サーバーは FFmpeg で **PCM 16-bit mono WAV（24kHz/mono）** に変換し、`src/voice/models/samples/sample_01.wav` などとして **上書き禁止**で保存する。
 
 ---
 
-### 5. エンコード設定の解像度対応
+### 4. CSV解析
 
-**調査結果**: 既存のVP8/VP9設定で解像度変更に対応可能
+**課題**:
 
-**関連環境変数**:
+- `split("\n")` + 正規表現の簡易解析では、引用符・カンマ・改行を含むセルで破綻する。
+- UTF-8 と Shift_JIS の判定は「例外」では検出できない（UTF-8のデコードは通常例外を投げない）。
 
-| 変数 | デフォルト | 高解像度推奨 |
-|------|-----------|--------------|
-| `USE_VP8` | 1 | 0（VP9推奨） |
-| `VP9_CPU_USED` | 8 | 4-6 |
-| `VP9_CRF` | 40 | 30-35 |
-| `OUTPUT_FPS` | 15 | 15（据え置き） |
+**決定**:
 
-**注意**: 1440pではVP9使用を推奨（VP8は2560幅で品質低下）
+- UI側で最小限の RFC4180 対応パーサを実装し、引用符/カンマ/改行を扱う。
+- UTF-8デコード結果の置換文字 $\uFFFD$ 比率で Shift_JIS 再デコードを試す。
 
 ---
 
-## 技術スタック確認
+### 5. CSV保存（Excel等によるロック対策）
 
-### Python版
+**課題**:
 
-| 項目 | バージョン | 役割 |
-|------|-----------|------|
-| Python | 3.10.11 | ランタイム |
-| edge-tts | 最新 | 音声合成 |
-| moviepy | <2.0 | 動画編集 |
-| pymupdf | 最新 | PDF処理 |
-| pandas | 最新 | CSV読み込み |
-| imageio-ffmpeg | 最新 | FFmpegラッパー |
+- `input/原稿.csv` が他アプリで開かれていると、サーバーが上書きできない。
 
-### Web UI
+**決定**:
 
-| 項目 | バージョン | 役割 |
-|------|-----------|------|
-| React | 18 | UIフレームワーク |
-| Babel | 最新 | JSXトランスパイル |
-| Tailwind CSS | 3 | スタイリング |
-| PDF.js | 3.11 | PDF表示 |
-| Lucide Icons | 最新 | アイコン |
+- サーバーはまずユニーク名（`input/原稿_YYYYmmdd-HHMMSS.csv`）へ保存し、可能な場合のみ `input/原稿.csv` も更新する。
+- 音声一括生成は「直近にアップロードされたCSV」を優先して使用し、ロック環境でも動作する。
 
----
+## 参考
 
-## 未解決事項
-
-なし（すべての調査項目が解決済み）
-
----
-
-## 参考リンク
-
-- [MoviePy ドキュメント](https://zulko.github.io/moviepy/)
-- [Edge TTS GitHub](https://github.com/rany2/edge-tts)
-- [FFmpeg VP9 ガイド](https://trac.ffmpeg.org/wiki/Encode/VP9)
-- [Python shutil ドキュメント](https://docs.python.org/3/library/shutil.html)
+- FFmpeg（`imageio-ffmpeg`）
+- FastAPI async endpoint のブロッキング回避（`asyncio.to_thread`）

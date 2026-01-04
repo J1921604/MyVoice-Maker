@@ -3,7 +3,7 @@
 原稿CSVから、AI音声ナレーション（MP3）を自動生成するツールです。
 
 **バージョン**: 1.0.0  
-**日付**: 2026-1-5  
+**日付**: 2026-01-05  
 **リポジトリ**: https://github.com/J1921604/MyVoice-Maker
 
 ## 🎯 音声生成技術
@@ -14,35 +14,39 @@
 
 ```mermaid
 flowchart LR
-    A[音声サンプル<br/>sample.wav] --> B[XTTS v2<br/>モデル]
+   A[音声サンプル<br/>sample_01.wav など] --> B[XTTS v2<br/>モデル]
     C[原稿テキスト] --> B
     B --> D[生成音声<br/>*.mp3]
 ```
 
 #### 特徴
 
-- **自分の声**: わずか3-10秒の音声サンプルで、あなたの声を再現
+- **自分の声**: 数秒〜数十秒の音声サンプルで、あなたの声を再現（長く録ってもOK）
 - **多言語対応**: 日本語を含む複数言語に対応
 - **オープンソース**: 完全にオープンソースで、ローカル実行可能
 - **高品質**: 自然な抑揚とイントネーションを再現
 
-#### 音声サンプル作成
+#### 音声サンプル作成（推奨: Web UI）
+
+`index.html` の「録音」からマイク入力を録音し、サーバーが `src/voice/models/samples/sample_01.wav` のように **上書き禁止**で保存します。
+
+#### 音声サンプル作成（任意: 既存ファイルから変換）
 
 ```bash
-# 音声サンプルを録音
-py -3.10 src\voice\create_voice.py
+# 既存の音声ファイル（mp3/wav等）を sample_XX.wav に変換して追加
+py -3.10 src\voice\create_voice.py --input path\to\recording.wav
 ```
 
-録音後、`src/voice/models/samples/sample.wav` が自動的に使用されます。
+生成時は `src/voice/models/samples/` 内の **最大番号の sample_XX.wav** が自動的に選ばれます。
 
 ## 📦 機能概要
 
 ```mermaid
 flowchart LR
-    A[原稿CSV入力] --> B[音声生成<br/>output/temp]
+   A[原稿CSV入力] --> B[音声生成<br/>output/temp をクリア]
     B --> C[音声再生]
     A --> D[原稿CSV出力]
-    E[録音ボタン] --> F[sample.wav保存]
+   E[録音ボタン] --> F[sample_01.wav等を保存]
 ```
 
 ### 主要機能
@@ -50,8 +54,8 @@ flowchart LR
 | 機能 | 説明 |
 |------|------|
 | **原稿CSV入力** | inputフォルダにCSVファイルを上書き保存 |
-| **録音** | マイクから音声サンプル（sample.wav）を録音 |
-| **音声生成** | Coqui TTS（XTTS v2）でAI音声を生成、output/tempに音声を保存 |
+| **録音** | マイクから音声サンプルを録音し、`src/voice/models/samples/sample_XX.wav` に保存（上書き禁止） |
+| **音声生成** | Coqui TTS（XTTS v2）でAI音声を生成し、`output/slide_000.mp3` 等へ上書き保存（生成前に `output/temp` を全削除） |
 | **音声再生** | 生成された音声を再生 |
 | **原稿CSV出力** | 編集した原稿をCSVでダウンロード |
 
@@ -91,16 +95,13 @@ http://127.0.0.1:8000
 
 1. **原稿CSV読み込み**: 「原稿CSV入力」でCSVを読み込み、input/原稿.csvに上書き保存
 2. **音声サンプル録音（初回のみ）**: 「録音」でマイクから3-600秒の音声を録音（録音時間は手動設定可能）
-3. **音声生成**: 「音声生成」でoutput/tempをクリアし音声ファイル（slide_000.mp3等）を生成
+3. **音声生成**: 「音声生成」で `output/temp` をクリアし、音声ファイル（`slide_000.mp3` 等）を生成（上書き）
 4. **音声再生**: 「音声再生」で生成された音声を確認
 5. **原稿CSV出力**: 編集した原稿をCSVでダウンロード可能
 
 ### CLIで直接実行
 
 ```bash
-# 音声サンプル録音
-py -3.10 src\voice\create_voice.py
-
 # 音声生成テスト
 py -3.10 src\voice\voice_generator.py
 ```
@@ -116,13 +117,12 @@ MyVoice-Maker/
 ├── input/
 │   └── 原稿.csv        # ナレーション原稿
 ├── output/
-│   └── temp/           # 音声ファイル（slide_000.mp3等）
+│   └── temp/           # 一時ファイル（中間生成物）
 ├── src/
-│   ├── main.py         # CLIエントリポイント（非推奨）
-│   ├── processor.py    # 音声生成処理
+│   ├── main.py         # CLIエントリポイント
 │   ├── server.py       # FastAPIサーバー
 │   └── voice/
-│       ├── create_voice.py      # 音声サンプル録音
+│       ├── create_voice.py      # 既存音声→sample_XX.wav 変換ユーティリティ
 │       ├── voice_generator.py   # 音声生成クラス
 │       └── models/samples/      # 音声サンプル保存先
 ├── tests/
@@ -135,12 +135,12 @@ MyVoice-Maker/
 
 ```csv
 index,script
-0,"最初のスライドの原稿テキストをここに記載します。"
-1,"2番目のスライドの原稿です。複数行も可能です。"
-2,"3番目のスライドの原稿。"
+0,"最初の原稿テキストをここに記載します。"
+1,"2番目の原稿です。複数行も可能です。"
+2,"3番目の原稿。"
 ```
 
-- **index**: スライド番号（0から開始）
+- **index**: 行番号（0から開始）
 - **script**: 読み上げ原稿テキスト
 - **文字コード**: UTF-8（BOM付き推奨）、Shift_JIS、EUC-JP対応
 
@@ -150,8 +150,10 @@ index,script
 
 | 変数名 | デフォルト | 説明 |
 |--------|-----------|------|
-| `USE_COQUI_TTS` | `1` | Coqui TTS使用（`0`で音声生成無効） |
-| `COQUI_SPEAKER_WAV` | `src/voice/models/samples/sample.wav` | Coqui TTSの話者サンプル音声パス |
+| `COQUI_SPEAKER_WAV` | （自動選択） | 話者サンプル音声パス（相対パスはリポジトリルート基準） |
+| `SVM_INPUT_DIR` | `input/` | 入力フォルダ（テスト用に差し替え可能） |
+| `SVM_OUTPUT_DIR` | `output/` | 出力フォルダ（テスト用に差し替え可能） |
+| `SVM_FAKE_TTS` | `0` | `1`でフェイクTTS（モデルDL無しで無音MP3生成、CI/e2e向け） |
 
 ## ✅ テスト
 
@@ -163,7 +165,7 @@ py -3.10 -m pytest -m e2e -v
 py -3.10 -m pytest tests/e2e/test_local_backend.py -v
 ```
 
-## � トラブルシューティング
+## トラブルシューティング
 
 ### 文字化けする場合
 
@@ -201,10 +203,9 @@ pip install --upgrade imageio-ffmpeg
 3. **音声サンプルファイルを確認**:
    ```bash
    # ファイルが存在するか確認
-   Test-Path src\voice\models\samples\sample.wav
+   Test-Path src\voice\models\samples\sample_01.wav
    
-   # 存在しない場合は録音
-   py -3.10 src\voice\create_voice.py
+   # 存在しない場合はWeb UIで録音して保存
    ```
 
 4. **サーバーを再起動**:
@@ -225,6 +226,13 @@ powershell -ExecutionPolicy Bypass -File start.ps1
 py -3.10 -m uvicorn src.server:app --host 127.0.0.1 --port 8000
 ```
 
+### `index.html` を `file://` で開くと動かない
+
+`file://` 直開きだと `window.location.origin` が `null` になり、API URL が壊れてUIが無反応に見える場合があります。
+
+- 推奨: `start.ps1` でサーバーを起動し、 `http://127.0.0.1:8000` からアクセスしてください。
+- どうしても `file://` で開く場合: UIは `http://127.0.0.1:8000` をフォールバック先として扱います（サーバー起動が前提）。
+
 ## 📚 ドキュメント
 
 | ドキュメント | 説明 |
@@ -236,7 +244,7 @@ py -3.10 -m uvicorn src.server:app --host 127.0.0.1 --port 8000
 
 ## 🌐 GitHub Pages（静的UI）
 
-Actionsが `dist` をデプロイし、静的な `index.html` をGitHub Pagesで公開します。バックエンドAPIはローカルサーバー（`start.ps1` / `py -3.10 -m uvicorn src.server:app`）で動かしてください。
+Actionsが静的な `index.html` をGitHub Pagesで公開します。バックエンドAPIはローカルサーバー（`start.ps1` / `py -3.10 -m uvicorn src.server:app`）で動かしてください。
 
 手動でPages用アーティファクトを作る場合:
 

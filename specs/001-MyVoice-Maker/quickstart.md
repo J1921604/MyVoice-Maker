@@ -1,11 +1,13 @@
-﻿# クイックスタート: Slide MyVoice Maker
+﻿# クイックスタート: MyVoice Maker
 
-**日付**: 2026-1-5
+**日付**: 2026-01-05
 **対象**: 開発者・利用者
 
 ## 概要
 
-Slide MyVoice MakerはPDFスライドと原稿CSVから、Coqui TTS (XTTS v2)による自分の声を使ったAI音声ナレーション付き動画（WebM）を自動生成するツールです。
+MyVoice Makerは、**原稿CSV** と **話者サンプル（自分の声）** から、Coqui TTS (XTTS v2) を用いて **MP3音声**（`output/slide_000.mp3` など）を自動生成するローカルツールです。
+
+※ 本プロジェクトは **音声生成専用** です。
 
 ## 動作環境
 
@@ -14,14 +16,15 @@ Slide MyVoice MakerはPDFスライドと原稿CSVから、Coqui TTS (XTTS v2)に
 | OS | Windows 10/11 |
 | Python | 3.10.11（推奨） |
 | ブラウザ | Chrome / Edge（最新版） |
+| マイク | 録音機能を使う場合に必要 |
 
 ## インストール
 
 ### 1. リポジトリクローン
 
 ```bash
-git clone https://github.com/J1921604/Slide-MyVoice-Maker.git
-cd Slide-MyVoice-Maker
+git clone https://github.com/J1921604/MyVoice-Maker.git
+cd MyVoice-Maker
 ```
 
 ### 2. 依存パッケージインストール
@@ -30,55 +33,45 @@ cd Slide-MyVoice-Maker
 py -3.10 -m pip install -r requirements.txt
 ```
 
-## 使用方法
+## 使い方（Web UI・推奨）
 
-### ワンクリック実行（推奨）
-
-**Windows バッチ**:
-
-```batch
-.\start.ps1
-```
-
-**PowerShell**:
+### 起動
 
 ```powershell
-.\start.ps1
+powershell -ExecutionPolicy Bypass -File start.ps1
 ```
 
-### コマンドライン実行
+ブラウザで以下を開きます:
 
-**基本実行**:
+- http://127.0.0.1:8000
+
+### 手順
+
+1. （初回のみ）必要に応じて「TTSウォームアップ」を実行
+2. 「録音」から自分の声を録音して保存（`src/voice/models/samples/sample_01.wav` など）
+3. 「原稿CSV入力」で `input/原稿.csv` をアップロード（UI上で編集も可能）
+4. 「音声生成」を実行
+	- 実行前に `output/temp/` は自動クリアされ、中間生成物（WAVなど）は残りません
+	- 生成されたMP3は `output/slide_000.mp3` などとして **上書き保存**されます
+5. 生成された音声を再生／ダウンロード
+
+## 使い方（CLI）
 
 ```bash
+# input/原稿.csv を output/ に一括生成（上書きあり）
 py -3.10 src\main.py
+
+# 出力先を変更
+py -3.10 src\main.py --output .\output
+
+# 話者サンプルを明示指定
+py -3.10 src\main.py --speaker-wav .\src\voice\models\samples\sample_01.wav
+
+# 既存ファイルを上書きしない
+py -3.10 src\main.py --no-overwrite
 ```
 
-**解像度指定**:
-
-```bash
-# 720p（デフォルト）
-py -3.10 src\main.py --resolution 720p
-
-# 1080p（フルHD）
-py -3.10 src\main.py --resolution 1080p
-
-# 1440p（2K）
-py -3.10 src\main.py --resolution 1440p
-```
-
-**フルオプション**:
-
-```bash
-py -3.10 src\main.py --input input --output output --script input\原稿.csv --resolution 1080
-```
-
-## 入力ファイル
-
-### PDFファイル
-
-- `input/` フォルダに配置
-- 複数PDF対応（順次処理）
+## 入力
 
 ### 原稿CSV
 
@@ -88,95 +81,47 @@ py -3.10 src\main.py --input input --output output --script input\原稿.csv --r
 
 ```csv
 index,script
-0,"最初のスライドの原稿テキストをここに記載します。"
-1,"2番目のスライドの原稿です。"
-2,"3番目のスライドの原稿。"
+0,"最初の原稿テキストをここに記載します。"
+1,"2行目の原稿です。"
 ```
 
 | 列名 | 説明 |
 |------|------|
-| index | スライド番号（0始まり） |
+| index | 音声の連番（0始まり） |
 | script | 読み上げテキスト |
 
-**対応文字コード**: UTF-8（推奨）、Shift_JIS、EUC-JP
+**対応文字コード**: UTF-8（推奨）、Shift_JIS/CP932 ほか（サーバー側で自動判定）
 
-## 出力ファイル
+### 話者サンプル
 
-### 動画ファイル
+- 保存先: `src/voice/models/samples/`
+- ファイル名: `sample_01.wav`, `sample_02.wav` ...（**上書き禁止**で連番保存）
+- 既定: 最大番号（最新）の `sample_XX.wav` が自動選択されます
 
-- `output/{PDFファイル名}.webm`
-- VP8/VP9コーデック
-- 選択した解像度で出力
+## 出力
 
-### 一時ファイル
-
-- `output/temp/{PDFファイル名}/`
-- 処理開始時に自動クリア
-
-## 解像度オプション
-
-| 選択肢 | 解像度 | 用途 |
-|--------|--------|------|
-| 720p | 1280×720 | Web配信、ファイルサイズ優先 |
-| 1080p | 1920×1080 | プレゼンテーション、標準品質 |
-| 1440p | 2560×1440 | 高品質、大画面表示 |
-
-## Web UI
-
-**起動方法**:
-```powershell
-# ワンクリック起動（推奨）
-powershell -ExecutionPolicy Bypass -File start.ps1
-
-# または手動起動
-py -3.10 -m uvicorn src.server:app --host 127.0.0.1 --port 8000
-```
-
-**URL**: http://127.0.0.1:8000
-
-### 使用手順
-
-1. PDFファイルをアップロード
-2. 原稿CSVをアップロード（input/原稿.csvに保存）
-3. 解像度を選択（720p/1080p/1440p）
-4. 再生速度を選択（0.5x〜2.0x）
-5. 字幕ON/OFFを選択（動画に字幕を埋め込むかどうか）
-6. 「画像・音声生成」ボタンをクリック（output/tempに保存）
-7. 「動画生成」ボタンをクリック（output/に保存）
-8. 「動画出力」ボタンで動画ダウンロード
+- `output/slide_000.mp3`, `output/slide_001.mp3` ...（実行ごとに上書き）
+- `output/temp/` は中間生成物用（実行前に自動クリア）
 
 ## 環境変数
 
 | 変数名 | デフォルト | 説明 |
 |--------|-----------|------|
-| `OUTPUT_MAX_WIDTH` | 1280 | 出力最大幅（px） |
-| `USE_VP8` | 1 | VP8使用（0でVP9） |
-| `VP9_CPU_USED` | 8 | エンコード速度（0-8） |
-| `VP9_CRF` | 40 | 品質（大きいほど低品質） |
-| `OUTPUT_FPS` | 15 | 出力FPS |
-| `SLIDE_RENDER_SCALE` | 1.5 | PDF解像度倍率 |
-| `SILENCE_SLIDE_DURATION` | 5 | 原稿なしスライド表示秒数 |
+| `SVM_INPUT_DIR` | `./input` | 入力ディレクトリ（テスト・運用用） |
+| `SVM_OUTPUT_DIR` | `./output` | 出力ディレクトリ（テスト・運用用） |
+| `SVM_FAKE_TTS` | 未設定 | `1` の場合、モデル無しで疑似生成（テスト用） |
 
 ## トラブルシューティング
 
-### よくある問題
-
-| 症状 | 原因 | 対処法 |
-|------|------|--------|
-| Python not found | Pythonパスが通っていない | `py -3.10` を使用 |
-| 文字化け | CSVエンコーディング | UTF-8で保存し直す |
-| 動画生成が遅い | 高解像度設定 | 720pを使用、またはVP8を有効化 |
-| tempファイルが消えない | ファイルロック | プレビューアプリを閉じて再実行 |
-
-### ログ確認
-
-```bash
-# 詳細ログを表示
-py -3.10 src\main.py 2>&1 | tee log.txt
-```
+| 症状 | 原因 | 対処 |
+|------|------|------|
+| UIが通信できない | `index.html` を直接開いている（`file://`） | `start.ps1` で起動し、`http://127.0.0.1:8000` から開く |
+| CSVが保存できない | 他アプリで開いてロックされている | ロックを解除して再試行（サーバーはユニーク名にも保存します） |
+| tempが消えない | プレビュー等でファイルロック | 関連アプリを閉じて再実行（サーバー側でリトライします） |
+| 生成に時間がかかる | 初回のモデルロードが重い | 先に「ウォームアップ」を実行、もしくは待機（UIは最大600秒） |
 
 ## 次のステップ
 
-- [機能仕様書](https://github.com/J1921604/Slide-MyVoice-Maker/blob/main/specs/001-Slide-MyVoice-Maker/spec.md)を確認
-- [実装計画](https://github.com/J1921604/Slide-MyVoice-Maker/blob/main/specs/001-Slide-MyVoice-Maker/plan.md)を確認
-- [タスク一覧](https://github.com/J1921604/Slide-MyVoice-Maker/blob/main/specs/001-Slide-MyVoice-Maker/tasks.md)で進捗確認
+- [機能仕様書](https://github.com/J1921604/MyVoice-Maker/blob/main/specs/001-MyVoice-Maker/spec.md)を確認
+- [実装計画](https://github.com/J1921604/MyVoice-Maker/blob/main/specs/001-MyVoice-Maker/plan.md)を確認
+- [タスク一覧](https://github.com/J1921604/MyVoice-Maker/blob/main/specs/001-MyVoice-Maker/tasks.md)で進捗確認

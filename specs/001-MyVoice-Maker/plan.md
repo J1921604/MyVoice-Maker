@@ -9,11 +9,11 @@
 
 本計画は、MyVoice Makerツールに以下の機能を追加するための実装計画である:
 
-1. **音声サンプル録音機能**: 3-300秒の手動録音時間設定
+1. **音声サンプル録音機能**: 3-600秒の手動録音時間設定
 2. **原稿CSV入力機能**: UTF-8/Shift-JIS対応のCSVアップロード
 3. **音声生成機能**: Coqui TTS (XTTS v2)による自分の声での音声生成
 4. **temp上書き更新機能**: 毎回のビルド時にtempフォルダをクリア（リトライ機能付き）
-5. **タイムアウト対策**: 長文の自動分割と120秒タイムアウト設定
+5. **タイムアウト対策**: 初回XTTSモデルロードを考慮した600秒タイムアウト設定
 
 加えて、運用上の要件として以下も満たす:
 
@@ -69,24 +69,21 @@ specs/001-MyVoice-Maker/
 ### ソースコード（リポジトリルート）
 
 ```text
-Slide-MyVoice-Maker/
+MyVoice-Maker/
 ├── index.html           # Web UI（サーバー連携、GitHub Pages静的配信）
 ├── start.ps1            # ワンクリック起動スクリプト
 ├── requirements.txt     # Python依存パッケージ
-├── preview.bat          # プレビュー起動
 ├── input/
-│   ├── *.pdf            # 入力PDFファイル
-│   └── 原稿.csv         # ナレーション原稿
+│   └── 原稿.csv         # 読み上げ原稿
 ├── output/
-│   ├── *.webm / *.mp4   # 生成された動画
-│   └── temp/            # 一時ファイル（自動クリア対象）
+│   ├── slide_000.mp3    # 生成された音声（上書き）
+│   └── temp/            # 中間生成物（wav等、自動クリア対象）
 ├── src/
 │   ├── main.py          # CLIエントリポイント
-│   ├── processor.py     # PDF処理・動画生成
 │   └── server.py        # FastAPIサーバー
 └── tests/
     └── e2e/
-        ├── test_resolution.py      # CLI解像度E2Eテスト
+        ├── test_resolution.py      # CLI E2Eテスト
         └── test_local_backend.py   # バックエンドE2Eテスト
 
 pytest.ini               # pytest設定（markers等）
@@ -96,47 +93,35 @@ pytest.ini               # pytest設定（markers等）
 
 ```mermaid
 flowchart TB
-    subgraph CLI入力
-        ARG[--resolution引数]
-        ENV[OUTPUT_MAX_WIDTH環境変数]
+    subgraph Web UI
+        HTML[index.html]
+        REC[MediaRecorder録音]
+        EDIT[原稿編集]
     end
 
-    subgraph src/main.py
-        PARSER[argparse解析]
-        RESMAP[RESOLUTION_MAP]
-        SETENV[環境変数設定]
+    subgraph Local API
+        API[src/server.py]
+        VG[src/voice/voice_generator.py]
+        TTS[Coqui TTS XTTS v2]
     end
 
-    subgraph src/processor.py
-        CLEAR[clear_temp_folder]
-        WIDTH[_get_output_max_width]
-        ENCODE[動画エンコード]
+    subgraph Storage
+        IN[input/原稿.csv]
+        SAMPLES[src/voice/models/samples/sample_XX.wav]
+        OUT[output/slide_000.mp3等]
+        TEMP[output/temp/（wav等）]
     end
 
-    subgraph Web UI index.html
-        DROPDOWN[解像度ドロップダウン]
-        STATE[selectedResolution state]
-        API[サーバーAPI呼び出し]
-    end
-
-    subgraph src/server.py
-        UPLOAD[PDF/CSVアップロード]
-        GENERATE[動画生成エンドポイント]
-        DOWNLOAD[ダウンロードエンドポイント]
-    end
-
-    ARG --> PARSER
-    PARSER --> RESMAP
-    RESMAP --> SETENV
-    SETENV --> ENV
-    ENV --> WIDTH
-    WIDTH --> ENCODE
-
-    DROPDOWN --> STATE
-    STATE --> API
-    API --> GENERATE
-    GENERATE --> ENCODE
-    UPLOAD --> GENERATE
+    HTML -->|CSVアップロード| API
+    REC -->|録音アップロード| API
+    EDIT -->|生成開始| API
+    API -->|tempクリア| TEMP
+    API --> VG
+    VG --> TTS
+    VG --> TEMP
+    VG --> OUT
+    API --> IN
+    API --> SAMPLES
 ```
 
 ## データフロー
@@ -144,24 +129,27 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     participant User as ユーザー
-    participant Main as main.py
-    participant Proc as processor.py
-    participant TTS as Edge TTS
-    participant FFmpeg as FFmpeg
+    participant UI as index.html
+    participant Server as src/server.py
+    participant VG as voice_generator.py
+    participant TTS as Coqui TTS (XTTS v2)
 
-    User->>Main: --resolution 1080 指定
-    Main->>Main: RESOLUTION_MAP参照
-    Main->>Main: OUTPUT_MAX_WIDTH=1920 設定
-    Main->>Proc: process_pdf_and_script()
-    Proc->>Proc: clear_temp_folder()
-    Proc->>Proc: PDF→画像変換
-    Proc->>TTS: 音声生成リクエスト
-    TTS-->>Proc: 音声ファイル
-    Proc->>Proc: _get_output_max_width()→1920
-    Proc->>FFmpeg: エンコード（1920x1080）
-    FFmpeg-->>Proc: WebMファイル
-    Proc-->>Main: 完了
-    Main-->>User: 動画出力完了
+    User->>UI: 原稿CSV入力
+    UI->>Server: POST /api/upload/csv
+    Server-->>UI: slides（index/script）
+
+    User->>UI: 録音開始→停止
+    UI->>Server: POST /api/upload/recording
+    Server-->>UI: sample_XX.wav 保存完了
+
+    User->>UI: 音声生成
+    UI->>Server: POST /api/clear_temp
+    UI->>Server: POST /api/generate_from_csv
+    Server->>VG: generate_from_csv()
+    VG->>TTS: tts_to_file(text, speaker_wav)
+    TTS-->>VG: WAV
+    VG-->>Server: MP3（output/slide_000.mp3等）
+    Server-->>UI: items（生成結果）
 ```
 
 ## 状態遷移
@@ -170,17 +158,16 @@ sequenceDiagram
 stateDiagram-v2
     [*] --> 待機中: アプリ起動
 
-    待機中 --> 入力確認中: PDF/CSV選択
-    入力確認中 --> エラー: 入力不正
-    入力確認中 --> 解像度選択中: 入力OK
+    待機中 --> CSV読込: 原稿CSV入力
+    CSV読込 --> エラー: CSV不正/読込失敗
+    CSV読込 --> 録音: 録音開始
+    録音 --> CSV読込: 録音停止（保存完了）
 
-    解像度選択中 --> 処理中: 生成開始
-    処理中 --> temp削除中: clear_temp_folder
-    temp削除中 --> PDF変換中: 削除完了
-    PDF変換中 --> 音声生成中: 変換完了
-    音声生成中 --> エンコード中: 音声完了
-    エンコード中 --> 完了: エンコード完了
-    エンコード中 --> エラー: エンコード失敗
+    CSV読込 --> 生成中: 音声生成
+    生成中 --> temp削除中: clear_temp
+    temp削除中 --> 音声生成中: 生成開始
+    音声生成中 --> 完了: MP3出力完了
+    音声生成中 --> エラー: 生成失敗
 
     エラー --> 待機中: リトライ
     完了 --> 待機中: 新規生成
@@ -203,33 +190,21 @@ stateDiagram-v2
 
 | 項目 | 決定 | 根拠 |
 |------|------|------|
-| 解像度指定方式 | 環境変数OUTPUT_MAX_WIDTH | 既存実装との互換性維持 |
-| temp削除方式 | shutil.rmtree() | 標準ライブラリで信頼性高い |
-| UI解像度 | React state + select要素 | 既存UIパターンに合致 |
+| temp削除方式 | shutil.rmtree() + リトライ | Windowsのロックを考慮 |
+| UI実装 | Vanilla JS | 単一 `index.html` で完結 |
+| 録音保存 | MediaRecorder → サーバーでWAV変換 | ブラウザ差異を吸収 |
 
 ### 調査結果
 
-- 解像度はアスペクト比16:9を維持（720p=1280x720, 1080p=1920x1080, 1440p=2560x1440）
-- VP8/VP9エンコードは解像度に応じて自動スケーリング
-- tempフォルダはPDF名ごとにサブフォルダを作成
+- CSVは UTF-8(BOM) / CP932(Shift_JIS) / EUC-JP 等が混在し得るため、サーバー側でスコアリング復号を行う
+- Windows環境ではファイルロックが起きやすいため、temp削除とMP3上書きはリトライ/置換で堅牢化する
+- 初回のXTTSモデルロードは重く、UI側は最大600秒の待機を前提にする
 
 ## Phase 1: 設計
 
-### 解像度選択機能
-
-**Python版（src/main.py）**:
-- `--resolution` 引数追加（720/720p/1080/1080p/1440/1440p）
-- `RESOLUTION_MAP` で引数値を環境変数値に変換
-- `os.environ["OUTPUT_MAX_WIDTH"]` に設定
-
-**Web UI（index.html）**:
-- `selectedResolution` state追加（デフォルト: '720p'）
-- `RESOLUTION_OPTIONS` 配列で選択肢定義
-- サーバーAPIに解像度パラメータを送信
-
 ### temp上書き機能
 
-**src/processor.py**:
+**src/server.py**:
 - `clear_temp_folder(temp_dir)` 関数追加
 - `shutil.rmtree()` でフォルダ削除
 - `os.makedirs()` で再作成
@@ -237,21 +212,20 @@ stateDiagram-v2
 
 ## Phase 2: 実装
 
-タスク詳細は https://github.com/J1921604/Slide-MyVoice-Maker/blob/main/specs/001-Slide-MyVoice-Maker/tasks.md を参照。
+タスク詳細は https://github.com/J1921604/MyVoice-Maker/blob/main/specs/001-MyVoice-Maker/tasks.md を参照。
 
 ## 検証計画
 
 | テスト種別 | 内容 | 担当 |
 |------------|------|------|
-| 単体テスト | clear_temp_folder()の動作確認 | 自動 |
-| CLI E2Eテスト | --resolution 1080で動画生成 | 自動 |
-| バックエンドE2Eテスト | サーバー経由でPDF/CSV→WebM生成 | 自動 |
-| 回帰テスト | 既存機能（デフォルト設定）の動作確認 | 手動 |
+| 単体テスト | CSVデコード/話者サンプル選択 | 自動 |
+| CLI E2Eテスト | 原稿CSV→MP3生成 | 自動 |
+| バックエンドE2Eテスト | サーバー経由でCSVアップロード→MP3生成 | 自動 |
+| 回帰テスト | Web UI: CSV→録音→生成→再生 | 手動 |
 
 ## リスクと対策
 
 | リスク | 影響度 | 対策 |
 |--------|--------|------|
-| 高解像度でメモリ不足 | 中 | 1440p使用時の警告表示 |
 | tempファイルロック | 低 | エラーログ出力して続行 |
 | ブラウザ互換性 | 低 | Chrome/Edge最新版を推奨 |
