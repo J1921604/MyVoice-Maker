@@ -388,6 +388,12 @@
             📄 原稿CSV入力
         </button>
         
+        <div style="margin-bottom: 10px;">
+            <label style="color: #ff8800; font-size: 14px; display: block; margin-bottom: 5px;">録音時間（秒）</label>
+            <input type="number" id="recordDuration" value="10" min="3" max="300" 
+                   style="width: 100%; padding: 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #ff8800; border-radius: 5px;" />
+        </div>
+        
         <button class="btn" id="recordBtn" data-tooltip="音声サンプル録音">
             🎤 録音
         </button>
@@ -459,8 +465,9 @@
         <div class="help-guide">
             <h4>📖 使い方ガイド</h4>
             <ul>
-                <li><strong>原稿CSV入力:</strong> CSVファイルを選択してinputフォルダに保存します</li>
-                <li><strong>録音:</strong> マイクから音声サンプルを録音します（3-10秒推奨）</li>
+                <li><strong>録音時間設定:</strong> 3〜300秒の範囲で録音時間を指定できます</li>
+                <li><strong>原稿CSV入力:</strong> CSVファイルを選択してinputフォルダに保存します（サイドバーまたはメイン画面）</li>
+                <li><strong>録音:</strong> マイクから指定時間の音声サンプルを録音します（3-10秒推奨）</li>
                 <li><strong>音声生成:</strong> 原稿から音声ファイルを生成します（output/tempをクリア後、slide_000.mp3等を出力）</li>
                 <li><strong>音声再生:</strong> 生成された音声を再生します</li>
                 <li><strong>原稿CSV出力:</strong> 編集した原稿をCSVでダウンロードします</li>
@@ -514,6 +521,11 @@
             }
         }
 
+        // CSV入力（サイドバーボタン対応）
+        document.getElementById('csvInputBtn').addEventListener('click', () => {
+            document.getElementById('csvInput').click();
+        });
+
         // CSV入力
         document.getElementById('csvInput').addEventListener('change', async (e) => {
             const file = e.target.files[0];
@@ -532,63 +544,60 @@
                     body: formData
                 });
 
-                if (!response.ok) throw new Error('CSV upload failed');
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`CSV upload failed: ${errorText}`);
+                }
 
-                // CSVを解析
-                const text = await file.text();
-                const lines = text.split('\n').filter(line => line.trim());
+                // CSVを解析（文字化け対策：UTF-8, Shift-JIS自動判定）
+                const arrayBuffer = await file.arrayBuffer();
+                let text;
+                try {
+                    // UTF-8で試行
+                    text = new TextDecoder('utf-8').decode(arrayBuffer);
+                } catch {
+                    try {
+                        // Shift-JISで試行
+                        text = new TextDecoder('shift-jis').decode(arrayBuffer);
+                    } catch {
+                        // デフォルトで試行
+                        text = new TextDecoder().decode(arrayBuffer);
+                    }
+                }
+
+                const lines = text.split(/\r?\n/).filter(line => line.trim());
                 const slides = [];
 
                 for (let i = 1; i < lines.length; i++) {
-                    const match = lines[i].match(/^(\d+),(.*)$/);
+                    // CSVパース（カンマの後のダブルクォートを考慮）
+                    const match = lines[i].match(/^(\d+),\s*"?([^"]*)"?$/);
                     if (match) {
                         slides.push({
                             index: parseInt(match[1]),
-                            script: match[2].replace(/^"|"$/g, '').trim()
+                            script: match[2].trim()
                         });
                     }
+                }
+
+                if (slides.length === 0) {
+                    throw new Error('有効な原稿データが見つかりません');
                 }
 
                 currentSlides = slides;
                 renderSlides();
                 updateStatus('CSV読み込み完了', 'success');
             } catch (error) {
+                console.error('CSV読み込みエラー:', error);
                 updateStatus('CSV読み込み失敗: ' + error.message, 'error');
             }
         });
-
-        // スライドリスト表示
-        function renderSlides() {
-            const container = document.getElementById('slideList');
-            container.innerHTML = '';
-
-            currentSlides.forEach((slide, idx) => {
-                const item = document.createElement('div');
-                item.className = 'slide-item';
-                item.innerHTML = `
-                    <div class="slide-index">${slide.index}</div>
-                    <div class="slide-script">
-                        <textarea id="script_${idx}" rows="3">${slide.script}</textarea>
-                    </div>
-                `;
-                container.appendChild(item);
-
-                // テキスト変更を追跡
-                document.getElementById(`script_${idx}`).addEventListener('input', (e) => {
-                    currentSlides[idx].script = e.target.value;
-                });
-            });
-        }
-
-        // 録音
-        let mediaRecorder;
-        let recordedChunks = [];
-        let recordingStartTime;
-        let recordingDuration = 10; // 秒
+Timer;
 
         document.getElementById('recordBtn').addEventListener('click', async () => {
             const btn = document.getElementById('recordBtn');
             const status = document.getElementById('recordingStatus');
+            const durationInput = document.getElementById('recordDuration');
+            const recordingDuration = parseInt(durationInput.value) || 10;
 
             if (!mediaRecorder || mediaRecorder.state === 'inactive') {
                 // 録音開始
@@ -606,7 +615,10 @@
                         await uploadRecording(blob);
                         status.classList.remove('active');
                         btn.textContent = '🎤 録音';
-                        updateStatus('録音完了', 'success');
+                        if (recordingTimer) clearInterval(recordingTimer);
+                        
+                        // ストリームを停止
+                        stream.getTracks().forEach(track => track.stop());
                     };
 
                     mediaRecorder.start();
@@ -616,40 +628,110 @@
                     updateStatus('録音中...', 'info');
 
                     // タイマー更新
-                    const timerInterval = setInterval(() => {
+                    recordingTimer = setInterval(() => {
                         const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
                         const remaining = Math.max(0, recordingDuration - elapsed);
+                        const total = recordingDuration;
                         document.getElementById('recordingTime').textContent = 
-                            `${formatTime(elapsed)} / ${formatTime(recordingDuration)}`;
+                            `${formatTime(total)} / ${formatTime(elapsed)} / ${formatTime(remaining)}`;
 
                         if (elapsed >= recordingDuration) {
-                            clearInterval(timerInterval);
-                            mediaRecorder.stop();
+                            clearInterval(recordingTimer);
+                            if (mediaRecorder.state === 'recording') {
+                                mediaRecorder.stop();
+                            }
                         }
                     }, 100);
                 } catch (error) {
                     updateStatus('マイクアクセス失敗: ' + error.message, 'error');
+                    status.classList.remove('active');
                 }
             } else {
                 // 録音停止
-                mediaRecorder.stop();
-            }
-        });
-
-        function formatTime(seconds) {
-            const mins = Math.floor(seconds / 60);
-            const secs = seconds % 60;
-            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-        }
-
-        async function uploadRecording(blob) {
-            const formData = new FormData();
-            formData.append('file', blob, 'sample.wav');
-
+                if (recordingTimer) clearInterval(recordingTimer);
+                if (mediaRecorder.state === 'recording') {
             try {
-                // 録音をサーバーに送信（実装が必要）
                 updateStatus('録音をアップロード中...', 'info');
-                // TODO: サーバー側のエンドポイント実装
+                
+                // 現在の日時でファイル名を生成
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+                const filename = `sample_${timestamp}.wav`;
+                
+                const formData = new FormData();
+                formData.append('file', blob, filename);
+
+                const response = await fetch(`${API_BASE}/api/upload/recording`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`録音アップロード失敗: ${errorText}`);
+                }
+
+                const result = await response.json();
+                updateStatus(`録音保存完了: ${result.filename}`, 'success');
+            } catch (error) {
+                console.error('録音アップロードエラー:', error);assList.add('active');
+                const clearResponse = await fetch(`${API_BASE}/api/clear_temp`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+
+                if (!clearResponse.ok) {
+                    console.warn('tempクリア警告:', await clearResponse.text());
+                }
+
+                updateStatus('音声生成中...', 'info');
+                updateProgress(0);
+
+                // 各スライドの音声を生成（タイムアウト延長）
+                for (let i = 0; i < currentSlides.length; i++) {
+                    const slide = currentSlides[i];
+                    updateProgress((i / currentSlides.length) * 100, `${i + 1}/${currentSlides.length}`);
+
+                    if (!slide.script.trim()) continue;
+
+                    // タイムアウトを120秒に延長
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+                    try {
+                        const response = await fetch(`${API_BASE}/api/generate_audio`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                slide_index: slide.index,
+                                script: slide.script,
+                                resolution: '720p'
+                            }),
+                            signal: controller.signal
+                        });
+
+                        clearTimeout(timeoutId);
+
+                        if (!response.ok) {
+                            const errorText = await response.text();
+                            throw new Error(`音声生成失敗 (スライド${slide.index}): ${errorText}`);
+                        }
+                    } catch (error) {
+                        clearTimeout(timeoutId);
+                        if (error.name === 'AbortError') {
+                            throw new Error(`タイムアウト (スライド${slide.index}): 120秒経過`);
+                        }
+                        throw error;
+                    }
+                }
+
+                updateProgress(100, '完了');
+                updateStatus('音声生成完了', 'success');
+                document.getElementById('playBtn').disabled = false;
+                
+                setTimeout(() => updateProgress(0), 2000);
+            } catch (error) {
+                console.error('音声生成エラー:', error);側のエンドポイント実装
                 updateStatus('録音保存完了', 'success');
             } catch (error) {
                 updateStatus('録音アップロード失敗: ' + error.message, 'error');

@@ -103,6 +103,32 @@ async def upload_csv(file: UploadFile = File(...)) -> dict[str, str]:
     return {"saved": str(dst), "filename": dst.name}
 
 
+@app.post("/api/upload/recording")
+async def upload_recording(file: UploadFile = File(...)) -> dict[str, str]:
+    """録音ファイルをsrc/voice/models/samples/に保存"""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="ファイル名が指定されていません")
+
+    repo_root = _repo_root()
+    samples_dir = repo_root / "src" / "voice" / "models" / "samples"
+    samples_dir.mkdir(parents=True, exist_ok=True)
+
+    # ファイル名をサニタイズ
+    filename = _sanitize_filename(Path(file.filename).name)
+    
+    # .wav拡張子を確認
+    if not filename.lower().endswith('.wav'):
+        filename = filename + '.wav'
+    
+    dst = samples_dir / filename
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="ファイルが空です")
+
+    dst.write_bytes(data)
+    return {"saved": str(dst), "filename": filename}
+
+
 class GenerateRequest(BaseModel):
     pdf_name: str
     resolution: Literal["720", "720p", "1080", "1080p", "1440", "1440p"] = "720p"

@@ -1,39 +1,39 @@
-﻿# 実装計画: Slide MyVoice Maker
+﻿# 実装計画: MyVoice Maker
 
-**ブランチ**: `001-Slide-MyVoice-Maker`
+**ブランチ**: `001-MyVoice-Maker`
 **日付**: 2026-1-5
-**仕様**: https://github.com/J1921604/Slide-MyVoice-Maker/blob/main/specs/001-Slide-MyVoice-Maker/spec.md
+**リポジトリ**: https://github.com/J1921604/MyVoice-Maker
+**仕様**: https://github.com/J1921604/MyVoice-Maker/blob/main/specs/001-MyVoice-Maker/spec.md
 
 ## 概要
 
-本計画は、Slide MyVoice Makerツールに以下の機能を追加するための実装計画である:
+本計画は、MyVoice Makerツールに以下の機能を追加するための実装計画である:
 
-1. **出力動画の解像度選択機能**: 720p/1080p/1440pから選択可能
-2. **temp上書き更新機能**: 毎回のビルド時にtempフォルダをクリア
-3. **字幕ON/OFF機能**: 動画に字幕を埋め込むかどうかを選択可能（句読点分割+文字数比率）
-4. **動画形式選択**: WebM/MP4を選択可能
-5. **PPTX出力**: ブラウザ上のスライドをPPTXとして出力
+1. **音声サンプル録音機能**: 3-300秒の手動録音時間設定
+2. **原稿CSV入力機能**: UTF-8/Shift-JIS対応のCSVアップロード
+3. **音声生成機能**: Coqui TTS (XTTS v2)による自分の声での音声生成
+4. **temp上書き更新機能**: 毎回のビルド時にtempフォルダをクリア（リトライ機能付き）
+5. **タイムアウト対策**: 長文の自動分割と120秒タイムアウト設定
 
 加えて、運用上の要件として以下も満たす:
 
-- PDFアップロードでinput/に保存、原稿CSV入力でinput/原稿.csv上書き、音声生成でEdge TTS実行、output/にwebm出力
+- 原稿CSV入力でinput/原稿.csv上書き、音声生成でCoqui TTS実行、output/tempにmp3出力
 - **Web UIはサーバー連携のみ（静的配信はGitHub Pages、APIはローカル）**
-- **ホーム画面ヘッダーでPDFを常時アップロード**
-- **PDFアップロード後の画面では原稿CSV入力を維持**（文字化け対処のため）
-- **動画形式（WebM/MP4）とPPTX出力を提供**
+- **録音ファイルをsrc/voice/models/samples/に保存**
+- **CSV読み込み時のエンコーディングエラーを回避**（UTF-8/Shift-JIS自動判定）
 - 変更内容を **E2Eテストへ反映**し、検証可能にする
 
 ## 技術コンテキスト
 
 **言語/バージョン**: Python 3.10.11
-**主要依存関係**: TTS (Coqui XTTS v2), moviepy<2.0, pymupdf, imageio-ffmpeg, fastapi, uvicorn, torch, torchaudio, soundfile, cutlet, unidic-lite
-**ストレージ**: ファイルシステム（output/, output/temp/）
+**主要依存関係**: TTS (Coqui XTTS v2), soundfile, imageio-ffmpeg, fastapi, uvicorn, torch, torchaudio, cutlet, unidic-lite
+**ストレージ**: ファイルシステム（output/temp/, src/voice/models/samples/）
 **テスト**: 手動テスト + E2Eスクリプト
 **ターゲットプラットフォーム**: Windows
 **プロジェクト種別**: single（Python CLI + Web UI）
-**パフォーマンス目標**: スライド1枚あたり10秒以内で動画生成
-**制約**: UTF-8エンコーディング必須、メモリ使用量はPDFサイズの5倍以内
-**規模/スコープ**: 個人/小規模チーム向け、1～100ページのPDF対応
+**パフォーマンス目標**: 1行あたり30秒以内で音声生成
+**制約**: UTF-8エンコーディング必須、メモリ使用量はテキストサイズの10倍以内
+**規模/スコープ**: 個人/小規模チーム向け、1～100行のCSV対応
 
 ## 憲法チェック
 
@@ -56,7 +56,7 @@
 ### ドキュメント（本機能）
 
 ```text
-specs/001-Slide-MyVoice-Maker/
+specs/001-MyVoice-Maker/
 ├── spec.md              # 機能仕様書
 ├── plan.md              # 本ファイル（実装計画）
 ├── tasks.md             # タスク一覧
