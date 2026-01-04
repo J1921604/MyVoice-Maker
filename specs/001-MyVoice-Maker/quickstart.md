@@ -5,7 +5,7 @@
 
 ## 概要
 
-MyVoice Makerは、**原稿CSV** と **話者サンプル（自分の声）** から、Coqui TTS (XTTS v2) を用いて **MP3音声**（`output/slide_000.mp3` など）を自動生成するローカルツールです。
+MyVoice Makerは、**原稿CSV** と **話者サンプル（自分の声）** から、Coqui TTS (XTTS v2) を用いて **MP3音声** を自動生成するローカルツールです。
 
 ※ 本プロジェクトは **音声生成専用** です。
 
@@ -52,7 +52,7 @@ powershell -ExecutionPolicy Bypass -File start.ps1
 3. 「原稿CSV入力」で `input/原稿.csv` をアップロード（UI上で編集も可能）
 4. 「音声生成」を実行
 	- 実行前に `output/temp/` は自動クリアされ、中間生成物（WAVなど）は残りません
-	- 生成されたMP3は `output/slide_000.mp3` などとして **上書き保存**されます
+	- 生成されたMP3は `output/*.mp3` として **上書き保存**されます
 5. 生成された音声を再生／ダウンロード
 
 ## 使い方（CLI）
@@ -100,7 +100,7 @@ index,script
 
 ## 出力
 
-- `output/slide_000.mp3`, `output/slide_001.mp3` ...（実行ごとに上書き）
+- `output/*.mp3` （実行ごとに上書き）
 - `output/temp/` は中間生成物用（実行前に自動クリア）
 
 ## 環境変数

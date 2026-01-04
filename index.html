@@ -410,10 +410,6 @@
             🔊 音声生成
         </button>
         
-        <button class="btn" id="playBtn" data-tooltip="音声再生" disabled>
-            ▶️ 音声再生
-        </button>
-        
         <button class="btn" id="csvOutputBtn" data-tooltip="原稿csv出力">
             💾 原稿CSV出力
         </button>
@@ -516,12 +512,10 @@
         function renderSlides() {
             const list = document.getElementById('slideList');
             const info = document.getElementById('sidebarInfo');
-            const playBtn = document.getElementById('playBtn');
 
             if (!Array.isArray(currentSlides) || currentSlides.length === 0) {
                 list.innerHTML = '<p style="text-align: center; color: #888;">原稿がありません</p>';
                 info.textContent = 'index: - / -';
-                playBtn.disabled = true;
                 return;
             }
 
@@ -897,7 +891,6 @@
             // 生成中は誤操作防止
             const btn = document.getElementById('generateBtn');
             btn.disabled = true;
-            document.getElementById('playBtn').disabled = true;
 
             try {
                 // output/temp を事前に全削除（失敗したら止める）
@@ -950,7 +943,6 @@
 
                 updateProgress(100, '完了');
                 updateStatus('音声生成完了', 'success');
-                document.getElementById('playBtn').disabled = !generatedAny;
                 setTimeout(() => updateProgress(0), 2000);
             } catch (error) {
                 if (error.name === 'AbortError') {
@@ -961,20 +953,6 @@
                 updateProgress(0);
             } finally {
                 btn.disabled = false;
-            }
-        });
-
-        // 音声再生
-        document.getElementById('playBtn').addEventListener('click', () => {
-            if (currentSlides.length === 0) return;
-
-            // 生成済みの先頭音声を再生（フォールバックは 000）
-            if (firstPlayableAudioUrl) {
-                const indexPart = String(firstPlayableAudioUrl).match(/slide_(\d+)\.mp3/i);
-                const idx = indexPart ? Number(indexPart[1]) : 0;
-                playAudioByIndex(idx);
-            } else {
-                playAudioByIndex(0);
             }
         });
 

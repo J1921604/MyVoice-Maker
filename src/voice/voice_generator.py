@@ -3,6 +3,7 @@ import io
 import os
 import re
 import threading
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -316,6 +317,8 @@ class VoiceGenerator:
         temp_dir.mkdir(parents=True, exist_ok=True)
         wav_path = temp_dir / f"slide_{index:03d}.wav"
 
+        print(f"[VoiceGenerator] start index={index} wav={wav_path.name} mp3={mp3_path.name} speaker={speaker_wav}")
+
         if self._fake_tts:
             # script長に応じて最短0.4秒〜最長8秒の無音を生成
             import numpy as np
@@ -339,6 +342,7 @@ class VoiceGenerator:
             )
 
         _ffmpeg_encode_to_mp3(wav_path, mp3_path)
+        print(f"[VoiceGenerator] done index={index} -> {mp3_path} (size={mp3_path.stat().st_size} bytes)")
         return mp3_path
 
     def generate_from_csv(
@@ -371,6 +375,7 @@ class VoiceGenerator:
 
 _VOICE_LOCK = threading.Lock()
 _VOICE_INSTANCE: Optional[VoiceGenerator] = None
+_VG_FUTURE: Optional[asyncio.Future[VoiceGenerator]] = None
 
 
 def get_voice_generator() -> VoiceGenerator:
@@ -381,6 +386,20 @@ def get_voice_generator() -> VoiceGenerator:
             _VOICE_INSTANCE = VoiceGenerator()
             print("初期化完了")
         return _VOICE_INSTANCE
+
+
+async def get_voice_generator_async() -> VoiceGenerator:
+    """非同期コンテキストで VoiceGenerator を1回だけ初期化する。
+
+    - 初回のみスレッドプールでモデルロードを実行し、イベントループのブロックを避ける。
+    - 2回目以降は同じ Future を await するだけなので即時復帰する。
+    """
+
+    global _VG_FUTURE
+    if _VG_FUTURE is None:
+        loop = asyncio.get_running_loop()
+        _VG_FUTURE = loop.run_in_executor(None, get_voice_generator)
+    return await _VG_FUTURE
 
 
 if __name__ == "__main__":

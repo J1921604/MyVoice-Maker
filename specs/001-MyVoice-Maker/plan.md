@@ -76,7 +76,7 @@ MyVoice-Maker/
 ├── input/
 │   └── 原稿.csv         # 読み上げ原稿
 ├── output/
-│   ├── slide_000.mp3    # 生成された音声（上書き）
+│   ├── *.mp3            # 生成された音声（上書き）
 │   └── temp/            # 中間生成物（wav等、自動クリア対象）
 ├── src/
 │   ├── main.py          # CLIエントリポイント
@@ -108,7 +108,7 @@ flowchart TB
     subgraph Storage
         IN[input/原稿.csv]
         SAMPLES[src/voice/models/samples/sample_XX.wav]
-        OUT[output/slide_000.mp3等]
+        OUT[output/*.mp3]
         TEMP[output/temp/（wav等）]
     end
 
@@ -148,7 +148,7 @@ sequenceDiagram
     Server->>VG: generate_from_csv()
     VG->>TTS: tts_to_file(text, speaker_wav)
     TTS-->>VG: WAV
-    VG-->>Server: MP3（output/slide_000.mp3等）
+    VG-->>Server: MP3（output/*.mp3）
     Server-->>UI: items（生成結果）
 ```
 

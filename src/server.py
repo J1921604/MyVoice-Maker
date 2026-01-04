@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from voice.voice_generator import (
     ScriptRow,
     get_voice_generator,
+    get_voice_generator_async,
     load_script_csv,
     pick_default_speaker_wav,
 )
@@ -57,6 +58,29 @@ RESOLUTION_MAP: dict[str, int] = {
 app = FastAPI(title="MyVoice Maker Local API")
 
 
+@app.on_event("startup")
+async def _auto_warmup_tts() -> None:
+    """サーバー起動時に非同期でTTSモデルをプリロードする。
+
+    - 生成リクエスト前にダウンロード/初期化を開始しておき、UI側の600秒タイムアウトを回避しやすくする。
+    - 環境変数 SVM_AUTO_WARMUP=0 で無効化できる。
+    """
+
+    if os.environ.get("SVM_AUTO_WARMUP", "1") != "1":
+        return
+
+    async def _run():
+        try:
+            print("[startup] TTS warmup start...")
+            await get_voice_generator_async()
+            print("[startup] TTS warmup done")
+        except Exception as e:  # noqa: BLE001
+            # 失敗しても起動は継続する（初回リクエストでリトライ）
+            print(f"[startup] TTS warmup failed: {e}")
+
+    asyncio.create_task(_run())
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -67,8 +91,8 @@ async def warmup_tts() -> dict[str, str]:
     """Coqui TTSモデルを事前ロードする（初回アクセス高速化）"""
     try:
         # 初回のモデルロードは重く、イベントループをブロックすると他のAPIが固まるため
-        # スレッドに逃がして並行リクエストに耐える。
-        await asyncio.to_thread(get_voice_generator)
+        # run_in_executor を内部で利用する非同期版をawaitする。
+        await get_voice_generator_async()
         return {"status": "ready", "message": "Coqui TTS model loaded successfully"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -301,7 +325,7 @@ async def generate_audio(req: GenerateAudioRequest) -> dict[str, str]:
         raise HTTPException(status_code=400, detail="話者サンプルが見つかりません。録音して sample_01.wav 等を作成してください")
 
     try:
-        vg = get_voice_generator()
+        vg = await get_voice_generator_async()
         audio_path = await asyncio.to_thread(
             vg.generate_one,
             index=req.slide_index,
@@ -360,7 +384,7 @@ async def generate_from_csv(req: GenerateFromCsvRequest) -> dict[str, object]:
         raise HTTPException(status_code=400, detail="話者サンプルが見つかりません。録音して sample_01.wav 等を作成してください")
 
     try:
-        vg = get_voice_generator()
+        vg = await get_voice_generator_async()
         generated = await asyncio.to_thread(
             vg.generate_from_csv,
             script_csv_path=script_path,
