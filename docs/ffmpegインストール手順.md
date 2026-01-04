@@ -134,7 +134,7 @@ cd C:\Users\ユーザー名\spec-kit\12_MyVoice-Maker
 
 # 音声サンプルを作る（推奨: Web UI の「録音」）
 # 既存の音声ファイルを sample_XX.wav に変換して追加する場合:
-py -3.10 src\voice\create_voice.py --input path\to\recording.webm
+py -3.10 src\voice\create_voice.py --input path\to\recording.wav
 ```
 
 成功時の出力例：

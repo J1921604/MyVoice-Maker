@@ -190,7 +190,7 @@
         }
 
         /* リスト */
-        .slide-list {
+        .script-list {
             max-height: 400px;
             overflow-y: auto;
             background: #1a1a1a;
@@ -199,7 +199,7 @@
             padding: 10px;
         }
 
-        .slide-item {
+        .script-item {
             background: linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%);
             border: 1px solid #ff8800;
             border-radius: 6px;
@@ -211,7 +211,7 @@
             box-shadow: 0 2px 8px rgba(255, 136, 0, 0.2);
         }
 
-        .slide-index {
+        .row-index {
             background: linear-gradient(135deg, #ff8800 0%, #ff6600 100%);
             color: white;
             padding: 8px 15px;
@@ -222,11 +222,11 @@
             box-shadow: 0 2px 5px rgba(255, 136, 0, 0.4);
         }
 
-        .slide-script {
+        .row-script {
             flex: 1;
         }
 
-        .slide-script textarea {
+        .row-script textarea {
             width: 100%;
             min-height: 60px;
             background: #1a1a1a;
@@ -405,12 +405,16 @@
         <button class="btn" id="recordBtn" data-tooltip="音声サンプル録音">
             🎤 録音
         </button>
+
+        <button class="btn" id="buildModelBtn" data-tooltip="音声生成モデル構築">
+            🧠 音声生成モデル構築
+        </button>
         
         <button class="btn" id="generateBtn" data-tooltip="音声生成">
             🔊 音声生成
         </button>
-        
-        <button class="btn" id="csvOutputBtn" data-tooltip="原稿csv出力">
+
+        <button class="btn" id="csvExportBtn" data-tooltip="原稿csv出力">
             💾 原稿CSV出力
         </button>
         
@@ -439,10 +443,10 @@
             <p>Coqui TTS (XTTS v2) で自分の声を使った音声生成</p>
         </div>
 
-        <!-- スライドリスト -->
+        <!-- 原稿リスト -->
         <div class="card">
             <h3>📋 原稿リスト</h3>
-            <div class="slide-list" id="slideList">
+            <div class="script-list" id="scriptList">
                 <p style="text-align: center; color: #888;">CSVファイルを読み込んでください</p>
             </div>
         </div>
@@ -459,16 +463,17 @@
             <ul>
                 <li><strong>録音時間設定:</strong> 3〜600秒の範囲で録音時間を指定できます</li>
                 <li><strong>原稿CSV入力:</strong> CSVファイルを選択してinputフォルダに保存します（サイドバー）</li>
+                <li><strong>原稿CSV出力:</strong> 現在の原稿CSVをダウンロードします（サイドバー）</li>
                 <li><strong>録音:</strong> マイクから指定時間の音声サンプルを録音します（3-600秒）</li>
-                <li><strong>音声生成:</strong> 原稿から音声ファイルを生成します（output/tempをクリア後、slide_000.mp3等を出力）</li>
+                <li><strong>音声生成モデル構築:</strong> 録音した声（話者WAV）をモデルとして保存し、TTSを事前ロードします</li>
+                <li><strong>音声生成:</strong> 原稿から音声ファイルを生成します（output/tempをクリア後、voice_000.mp3等を出力）</li>
                 <li><strong>音声再生:</strong> 生成された音声を再生します</li>
-                <li><strong>原稿CSV出力:</strong> 編集した原稿をCSVでダウンロードします</li>
             </ul>
         </div>
     </div>
 
     <script>
-        let currentSlides = [];
+        let currentRows = [];
         // file:// で直接開かれた場合は origin が "null" になるため、ローカルAPIへフォールバック
         const API_BASE = (window.location.origin && window.location.origin !== 'null')
             ? window.location.origin
@@ -509,54 +514,70 @@
                 .replace(/'/g, '&#39;');
         }
 
-        function renderSlides() {
-            const list = document.getElementById('slideList');
+        function renderRows() {
+            const list = document.getElementById('scriptList');
             const info = document.getElementById('sidebarInfo');
 
-            if (!Array.isArray(currentSlides) || currentSlides.length === 0) {
+            if (!Array.isArray(currentRows) || currentRows.length === 0) {
                 list.innerHTML = '<p style="text-align: center; color: #888;">原稿がありません</p>';
                 info.textContent = 'index: - / -';
                 return;
             }
 
             // index順に整列
-            currentSlides = [...currentSlides].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
-            info.textContent = `index: 0-${currentSlides.length - 1} / ${currentSlides.length}`;
+            currentRows = [...currentRows].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+            info.textContent = `index: 0-${currentRows.length - 1} / ${currentRows.length}`;
 
             const frag = document.createDocumentFragment();
-            currentSlides.forEach((slide) => {
+            currentRows.forEach((row) => {
                 const item = document.createElement('div');
-                item.className = 'slide-item';
+                item.className = 'script-item';
 
                 const idx = document.createElement('div');
-                idx.className = 'slide-index';
-                idx.textContent = String(slide.index).padStart(3, '0');
+                idx.className = 'row-index';
+                idx.textContent = String(row.index).padStart(3, '0');
 
                 const scriptBox = document.createElement('div');
-                scriptBox.className = 'slide-script';
+                scriptBox.className = 'row-script';
 
                 const ta = document.createElement('textarea');
-                ta.value = slide.script ?? '';
+                ta.value = row.script ?? '';
                 ta.placeholder = '原稿を入力...';
                 ta.addEventListener('input', (e) => {
-                    slide.script = e.target.value;
+                    row.script = e.target.value;
+                });
+
+                const generateRowBtn = document.createElement('button');
+                generateRowBtn.className = 'btn';
+                generateRowBtn.style.padding = '8px 12px';
+                generateRowBtn.style.fontSize = '14px';
+                generateRowBtn.textContent = '音声生成';
+                generateRowBtn.title = 'この行だけ音声生成（上書き）';
+                generateRowBtn.addEventListener('click', async (ev) => {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+
+                    const idx = row.index;
+                    const script = (row && row.script !== undefined) ? String(row.script) : '';
+                    await generateOneRow(idx, script, generateRowBtn);
                 });
 
                 const playRowBtn = document.createElement('button');
                 playRowBtn.className = 'btn';
                 playRowBtn.style.padding = '8px 12px';
                 playRowBtn.style.fontSize = '14px';
-                playRowBtn.textContent = '▶️';
-                playRowBtn.title = 'この行の音声を再生';
+                playRowBtn.textContent = '音声再生';
+                playRowBtn.title = 'この行の音声を再生（既存の mp3 を再生）';
                 playRowBtn.addEventListener('click', (ev) => {
                     ev.preventDefault();
                     ev.stopPropagation();
-                    playAudioByIndex(slide.index);
+                    playAudioByIndex(row.index);
                 });
 
                 scriptBox.appendChild(ta);
                 item.appendChild(idx);
                 item.appendChild(scriptBox);
+                item.appendChild(generateRowBtn);
                 item.appendChild(playRowBtn);
                 frag.appendChild(item);
             });
@@ -568,7 +589,7 @@
         function audioUrlForIndex(index) {
             const idx = String(index ?? 0).padStart(3, '0');
             // キャッシュで古い音声が再生されるのを避ける
-            return `${API_BASE}/output/slide_${idx}.mp3?v=${Date.now()}`;
+            return `${API_BASE}/output/voice_${idx}.mp3?v=${Date.now()}`;
         }
 
         function playAudioByIndex(index) {
@@ -579,6 +600,81 @@
             audioCard.style.display = 'block';
             audioPlayer.play();
             updateStatus(`音声再生中: ${String(index).padStart(3, '0')}`, 'info');
+        }
+
+        async function generateOneRow(index, script, buttonEl = null) {
+            if (!script || String(script).trim().length === 0) {
+                updateStatus('この行の原稿が空です', 'error');
+                return;
+            }
+
+            // 再生中の音声があると Windows でファイルがロックされ、上書きに失敗することがある。
+            try {
+                const ap = document.getElementById('audioPlayer');
+                ap.pause();
+                ap.removeAttribute('src');
+                ap.load();
+            } catch {
+                // ignore
+            }
+
+            const genBtn = document.getElementById('generateBtn');
+            const buildBtn = document.getElementById('buildModelBtn');
+            const csvBtn = document.getElementById('csvInputBtn');
+            const csvExportBtn = document.getElementById('csvExportBtn');
+            const recBtn = document.getElementById('recordBtn');
+
+            const disableTargets = [genBtn, buildBtn, csvBtn, csvExportBtn, recBtn, buttonEl].filter(Boolean);
+            disableTargets.forEach(b => { try { b.disabled = true; } catch {} });
+
+            updateStatus('音声生成中（処理中 0/1）', 'info');
+            updateProgress(10, '処理中 0/1');
+
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 600000);
+                // 初回はモデル初期化で長時間かかる可能性があるため、202(warming) を待ち合わせで吸収する
+                let res = null;
+                for (let attempt = 0; attempt < 600; attempt++) { // 最大約20分
+                    res = await fetch(`${API_BASE}/api/generate_audio`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ index: index, script: script, overwrite: true }),
+                        signal: controller.signal,
+                    });
+
+                    if (res.status === 202) {
+                        let j = null;
+                        try { j = await res.json(); } catch { j = null; }
+                        const stage = (j && j.tts && j.tts.stage) ? String(j.tts.stage) : 'warming';
+                        updateStatus(`モデル初期化中: ${stage}（処理中 0/1）`, 'info');
+                        updateProgress(10, `初期化中: ${stage}`);
+                        await new Promise(r => setTimeout(r, 2000));
+                        continue;
+                    }
+
+                    break;
+                }
+                clearTimeout(timeoutId);
+
+                if (!res.ok) {
+                    const t = await res.text();
+                    throw new Error(t);
+                }
+
+                updateProgress(100, '完了');
+                updateStatus(`音声生成完了: ${String(index).padStart(3, '0')}`, 'success');
+                setTimeout(() => updateProgress(0), 1500);
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    updateStatus('音声生成失敗: タイムアウト（600秒超過）', 'error');
+                } else {
+                    updateStatus('音声生成失敗: ' + error.message, 'error');
+                }
+                updateProgress(0);
+            } finally {
+                disableTargets.forEach(b => { try { b.disabled = false; } catch {} });
+            }
         }
 
         function detectAndDecodeCsv(arrayBuffer) {
@@ -713,8 +809,8 @@
 
         async function uploadRecording(blob, filename = null) {
             const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-            // MediaRecorder は通常 audio/webm なので、拡張子も合わせる（サーバー側で sample.wav に変換して保存）
-            const safeName = filename || `sample_${ts}.webm`;
+            // 形式はブラウザ実装に依存するため、拡張子に依存せずサーバー側でWAVへ正規化して保存する
+            const safeName = filename || `sample_${ts}.bin`;
 
             const formData = new FormData();
             formData.append('file', blob, safeName);
@@ -737,6 +833,34 @@
         // CSV入力（サイドバーボタン対応）
         document.getElementById('csvInputBtn').addEventListener('click', () => {
             document.getElementById('csvInput').click();
+        });
+
+        // CSV出力（ダウンロード）
+        document.getElementById('csvExportBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('csvExportBtn');
+            btn.disabled = true;
+            updateStatus('CSVを書き出し中...', 'info');
+            try {
+                const res = await fetch(`${API_BASE}/api/export/csv`);
+                if (!res.ok) {
+                    const t = await res.text();
+                    throw new Error(t);
+                }
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = '原稿.csv';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                updateStatus('CSV出力完了', 'success');
+            } catch (e) {
+                updateStatus('CSV出力失敗: ' + (e && e.message ? e.message : String(e)), 'error');
+            } finally {
+                btn.disabled = false;
+            }
         });
 
         // CSV入力
@@ -772,13 +896,13 @@
                 }
 
                 const data = await response.json();
-                const slides = (data && data.slides) ? data.slides : [];
-                if (!Array.isArray(slides) || slides.length === 0) {
+                const rows = (data && data.rows) ? data.rows : [];
+                if (!Array.isArray(rows) || rows.length === 0) {
                     throw new Error('有効な原稿データが見つかりません');
                 }
 
-                currentSlides = slides;
-                renderSlides();
+                currentRows = rows;
+                renderRows();
                 updateStatus('CSV読み込み完了', 'success');
             } catch (error) {
                 console.error('CSV読み込みエラー:', error);
@@ -807,8 +931,8 @@
 
                     mediaRecorder.onstop = async () => {
                         try {
-                            // 実体は MediaRecorder のコンテナ形式（多くは audio/webm）
-                            const mime = mediaRecorder.mimeType || (recordedChunks[0] && recordedChunks[0].type) || 'audio/webm';
+                            // 実体は MediaRecorder のコンテナ形式（ブラウザ実装依存）
+                            const mime = mediaRecorder.mimeType || (recordedChunks[0] && recordedChunks[0].type) || 'application/octet-stream';
                             const blob = new Blob(recordedChunks, { type: mime });
                             await uploadRecording(blob);
                         } catch (err) {
@@ -858,15 +982,67 @@
             }
         });
 
+        // 音声生成モデル構築
+        document.getElementById('buildModelBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('buildModelBtn');
+            const genBtn = document.getElementById('generateBtn');
+            const recBtn = document.getElementById('recordBtn');
+            const csvBtn = document.getElementById('csvInputBtn');
+            const csvExportBtn = document.getElementById('csvExportBtn');
+
+            btn.disabled = true;
+            genBtn.disabled = true;
+            recBtn.disabled = true;
+            csvBtn.disabled = true;
+            csvExportBtn.disabled = true;
+
+            updateStatus('モデル構築中', 'info');
+            updateProgress(10, 'モデル構築中');
+
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 600000);
+                const res = await fetch(`${API_BASE}/api/build_voice_model`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({}),
+                    signal: controller.signal,
+                });
+                clearTimeout(timeoutId);
+
+                if (!res.ok) {
+                    const t = await res.text();
+                    throw new Error(t);
+                }
+
+                updateProgress(100, '完了');
+                updateStatus('モデル構築完了', 'success');
+                setTimeout(() => updateProgress(0), 1500);
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    updateStatus('モデル構築失敗: タイムアウト（600秒超過）', 'error');
+                } else {
+                    updateStatus('モデル構築失敗: ' + error.message, 'error');
+                }
+                updateProgress(0);
+            } finally {
+                btn.disabled = false;
+                genBtn.disabled = false;
+                recBtn.disabled = false;
+                csvBtn.disabled = false;
+                csvExportBtn.disabled = false;
+            }
+        });
+
         // 音声生成
         document.getElementById('generateBtn').addEventListener('click', async () => {
-            if (currentSlides.length === 0) {
+            if (currentRows.length === 0) {
                 updateStatus('原稿を読み込んでください', 'error');
                 return;
             }
 
             // 原稿が空（全行空白）ならエラー
-            const hasAnyScript = currentSlides.some(s => (s && s.script && String(s.script).trim().length > 0));
+            const hasAnyScript = currentRows.some(s => (s && s.script && String(s.script).trim().length > 0));
             if (!hasAnyScript) {
                 updateStatus('原稿リストが空です（scriptが空白）', 'error');
                 return;
@@ -885,12 +1061,14 @@
                 // ignore
             }
 
-            updateStatus(`音声生成中（0/${currentSlides.length}）`, 'info');
+            updateStatus(`音声生成中（処理中 0/${currentRows.length}）`, 'info');
             updateProgress(0);
 
             // 生成中は誤操作防止
             const btn = document.getElementById('generateBtn');
+            const csvExportBtn = document.getElementById('csvExportBtn');
             btn.disabled = true;
+            csvExportBtn.disabled = true;
 
             try {
                 // output/temp を事前に全削除（失敗したら止める）
@@ -906,22 +1084,38 @@
 
                 // 一括生成はサーバー応答が長時間ブロックしやすい。
                 // UI側で 1行ずつ生成して進捗（処理中/全数）を表示し、タイムアウトを回避する。
-                const total = currentSlides.length;
+                const total = currentRows.length;
                 let done = 0;
                 let generatedAny = false;
 
-                for (const slide of currentSlides) {
-                    const script = (slide && slide.script !== undefined) ? String(slide.script) : '';
-                    const idx = (slide && slide.index !== undefined) ? slide.index : 0;
+                for (const row of currentRows) {
+                    const script = (row && row.script !== undefined) ? String(row.script) : '';
+                    const idx = (row && row.index !== undefined) ? row.index : 0;
 
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 600000);
-                    const res = await fetch(`${API_BASE}/api/generate_audio`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ slide_index: idx, script: script, overwrite: true }),
-                        signal: controller.signal,
-                    });
+
+                    // 初回のモデルロード待ちを、202(warming)で吸収して「0/20で固まる」状態を回避
+                    let res = null;
+                    for (let attempt = 0; attempt < 900; attempt++) { // 最大約30分
+                        res = await fetch(`${API_BASE}/api/generate_audio`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ index: idx, script: script, overwrite: true }),
+                            signal: controller.signal,
+                        });
+
+                        if (res.status === 202) {
+                            let j = null;
+                            try { j = await res.json(); } catch { j = null; }
+                            const stage = (j && j.tts && j.tts.stage) ? String(j.tts.stage) : 'warming';
+                            updateProgress(0, `モデル初期化中: ${stage}`);
+                            updateStatus(`モデル初期化中（処理中 ${done}/${total}）: ${stage}`, 'info');
+                            await new Promise(r => setTimeout(r, 2000));
+                            continue;
+                        }
+                        break;
+                    }
                     clearTimeout(timeoutId);
 
                     if (!res.ok) {
@@ -932,13 +1126,13 @@
                     const data = await res.json();
                     if (!generatedAny && data && data.path) {
                         generatedAny = true;
-                        firstPlayableAudioUrl = data.audio_url || `/output/slide_${String(idx).padStart(3, '0')}.mp3`;
+                        firstPlayableAudioUrl = data.audio_url || `/output/voice_${String(idx).padStart(3, '0')}.mp3`;
                     }
 
                     done += 1;
                     const percent = total ? (done / total) * 100 : 0;
                     updateProgress(percent, `処理中 ${done}/${total}`);
-                    updateStatus(`音声生成中（${done}/${total}）`, 'info');
+                    updateStatus(`音声生成中（処理中 ${done}/${total}）`, 'info');
                 }
 
                 updateProgress(100, '完了');
@@ -953,31 +1147,8 @@
                 updateProgress(0);
             } finally {
                 btn.disabled = false;
+                csvExportBtn.disabled = false;
             }
-        });
-
-        // CSV出力
-        document.getElementById('csvOutputBtn').addEventListener('click', () => {
-            if (currentSlides.length === 0) {
-                updateStatus('原稿がありません', 'error');
-                return;
-            }
-
-            let csvContent = 'index,script\n';
-            currentSlides.forEach(slide => {
-                const idx = (slide && slide.index !== undefined) ? slide.index : '';
-                const script = (slide && slide.script !== undefined) ? String(slide.script) : '';
-                const escaped = script.replace(/"/g, '""');
-                csvContent += `${idx},"${escaped}"\n`;
-            });
-
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = '原稿.csv';
-            link.click();
-            
-            updateStatus('CSV出力完了', 'success');
         });
 
         // 初期化実行

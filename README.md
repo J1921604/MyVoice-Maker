@@ -55,9 +55,16 @@ flowchart LR
 |------|------|
 | **原稿CSV入力** | inputフォルダにCSVファイルを上書き保存 |
 | **録音** | マイクから音声サンプルを録音し、`src/voice/models/samples/sample_XX.wav` に保存（上書き禁止） |
-| **音声生成** | Coqui TTS（XTTS v2）でAI音声を生成し、`output/*.mp3` へ上書き保存（生成前に `output/temp` を全削除） |
+| **音声生成** | Coqui TTS（XTTS v2）でAI音声を生成し、`output/*.mp3` へ上書き保存（生成前に `output/temp` を全削除）。話者埋め込みキャッシュにより高速化。 |
 | **音声再生** | 生成された音声を再生 |
 | **原稿CSV出力** | 編集した原稿をCSVでダウンロード |
+
+### ログ
+
+実行ログは `logs/app.log` に保存されます。エラー発生時やパフォーマンス確認に利用してください。
+
+特に初回はモデルのダウンロード/初期化に数分かかることがあります。`logs/app.log` に
+`[VoiceGenerator] init: loading XTTS model...` が出たまま進まない場合は、この工程で停止しています。
 
 ## 🚀 クイックスタート
 
@@ -98,6 +105,26 @@ http://127.0.0.1:8000
 3. **音声生成**: 「音声生成」で `output/temp` をクリアし、音声ファイル（`*.mp3`）を生成（上書き）
 4. **音声再生**: 「音声再生」で生成された音声を確認
 5. **原稿CSV出力**: 編集した原稿をCSVでダウンロード可能
+
+## 🧯 トラブルシュート（処理中 0/20 で止まる）
+
+UIが「処理中 0/20」のまま進まない場合、サーバー側で **(A) モデル初期化** / **(B) 音声生成** のどちらで止まっているかを
+`logs/app.log` で確認してください。
+
+最新版では、サーバーがモデル初期化中の場合 `/api/generate_audio` は 202(warming) を返し、
+UIは「モデル初期化中: ...」を表示しながら自動リトライします。
+
+- (A) モデル初期化で停止:
+   - `Server: [startup] TTS warmup start...` の後に
+   - `VoiceGenerator: [VoiceGenerator] init: loading XTTS model...` が出たまま
+   - `... XTTS model ready ...` が出ない
+  
+   → 初回ダウンロード/初期化中の可能性が高いです（回線・FW/プロキシの影響もあり）。
+
+- (B) 音声生成で停止:
+   - `/api/generate_audio start ...` は出るが `/api/generate_audio done ...` が出ない
+  
+   → 生成処理が詰まっています。`VoiceGenerator` の `Generating WAV...` 以降のログを確認してください。
 
 ### 6. タイムアウト対策（XTTS v2初回ロード）
 

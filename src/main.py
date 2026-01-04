@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -14,8 +15,32 @@ if str(REPO_ROOT) not in sys.path:
 from src.voice.voice_generator import get_voice_generator, pick_default_speaker_wav
 
 
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _voice_model_json_path(repo_root: Path) -> Path:
+    return repo_root / "src" / "voice" / "models" / "tts_model.json"
+
+
+def _abs_from_repo(repo_root: Path, s: str) -> Path:
+    p = Path(s)
+    return p if p.is_absolute() else (repo_root / p).resolve()
+
+
+def _load_saved_voice_model(repo_root: Path) -> dict:
+    p = _voice_model_json_path(repo_root)
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
 def main() -> int:
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = _repo_root()
 
     parser = argparse.ArgumentParser(
         description="Generate MP3 narration from input/原稿.csv using Coqui XTTS v2.",
@@ -56,15 +81,37 @@ def main() -> int:
         print("Please create input\\原稿.csv (columns: index, script).")
         return 2
 
+    # 可能なら、事前構築済み voice キャッシュ（埋め込み）を優先して利用する。
+    # これにより speaker_wav からの埋め込み再計算を回避できる。
+    voice_id = None
+    voice_dir = None
+    speaker = None
+
     if args.speaker_wav:
+        # 明示指定は最優先（キャッシュより上）
         speaker = Path(args.speaker_wav)
     else:
-        speaker = pick_default_speaker_wav()
+        saved = _load_saved_voice_model(repo_root)
+        if saved.get("voice_id") and saved.get("voice_dir"):
+            voice_id = str(saved.get("voice_id"))
+            voice_dir = _abs_from_repo(repo_root, str(saved.get("voice_dir")))
+            voice_file = voice_dir / f"{voice_id}.pth"
+            if not voice_file.exists():
+                voice_id = None
+                voice_dir = None
 
-    if speaker is None or not speaker.exists():
-        print("Speaker sample not found.")
-        print("Place sample_01.wav etc under src\\voice\\models\\samples.")
-        return 2
+        if voice_id is None and saved.get("speaker_wav"):
+            speaker = _abs_from_repo(repo_root, str(saved.get("speaker_wav")))
+
+        if voice_id is None and (speaker is None or not speaker.exists()):
+            speaker = pick_default_speaker_wav()
+
+    if voice_id is None:
+        if speaker is None or not speaker.exists():
+            print("Speaker sample not found.")
+            print("Place sample_01.wav etc under src\\voice\\models\\samples.")
+            print("Or build voice cache from the Web UI (音声生成モデル構築).")
+            return 2
 
     vg = get_voice_generator()
     if args.index is not None:
@@ -86,6 +133,8 @@ def main() -> int:
             index=target.index,
             script=target.script,
             speaker_wav=speaker,
+            voice_id=voice_id,
+            voice_dir=voice_dir,
             output_dir=out_dir,
             overwrite=not args.no_overwrite,
         )
@@ -94,6 +143,8 @@ def main() -> int:
         generated = vg.generate_from_csv(
             script_csv_path=script_csv,
             speaker_wav=speaker,
+            voice_id=voice_id,
+            voice_dir=voice_dir,
             output_dir=out_dir,
             overwrite=not args.no_overwrite,
         )

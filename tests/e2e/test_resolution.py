@@ -65,7 +65,7 @@ def test_cli_generates_mp3_from_csv(tmp_path: Path) -> None:
     proc = _run(cmd, env=env, cwd=repo_root)
     assert proc.returncode == 0, f"CLIが失敗しました\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
 
-    out_mp3 = output_dir / "slide_000.mp3"
+    out_mp3 = output_dir / "voice_000.mp3"
     assert out_mp3.exists(), "MP3が生成されていません"
     assert out_mp3.stat().st_size > 0, "MP3が空です"
 

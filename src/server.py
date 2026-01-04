@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import json
 import asyncio
 import subprocess
 import shutil
@@ -10,11 +11,15 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import imageio_ffmpeg
+
+from src.logger import setup_logger
+
+logger = setup_logger("Server")
 
 # srcフォルダをパスに追加（相対インポート対応）
 sys.path.insert(0, str(Path(__file__).parent))
@@ -23,6 +28,7 @@ from voice.voice_generator import (
     ScriptRow,
     get_voice_generator,
     get_voice_generator_async,
+    get_tts_init_state,
     load_script_csv,
     pick_default_speaker_wav,
 )
@@ -45,14 +51,61 @@ def _output_dir(repo_root: Path) -> Path:
     return Path(os.environ.get("SVM_OUTPUT_DIR", str(repo_root / "output"))).resolve()
 
 
-RESOLUTION_MAP: dict[str, int] = {
-    "720": 1280,
-    "720p": 1280,
-    "1080": 1920,
-    "1080p": 1920,
-    "1440": 2560,
-    "1440p": 2560,
-}
+def _voice_model_path(repo_root: Path) -> Path:
+    # “モデル構築”で保存する、アプリ独自のTTSモデル設定（話者WAV等）
+    return repo_root / "src" / "voice" / "models" / "tts_model.json"
+
+
+def _voice_cache_dir(repo_root: Path) -> Path:
+    # XTTS v2 の話者埋め込み（conditioning latents 等）を .pth で保存する場所
+    return repo_root / "src" / "voice" / "models" / "voices"
+
+
+def _default_voice_id() -> str:
+    # UI/仕様として単一ユーザー想定のため固定IDを使う
+    return "myvoice"
+
+
+def _rel_to_repo(repo_root: Path, p: Path) -> str:
+    try:
+        return p.resolve().relative_to(repo_root.resolve()).as_posix()
+    except Exception:
+        return str(p.resolve())
+
+
+def _abs_from_repo(repo_root: Path, s: str) -> Path:
+    p = Path(s)
+    return p if p.is_absolute() else (repo_root / p).resolve()
+
+
+def load_saved_voice_model(repo_root: Path) -> Optional[dict]:
+    p = _voice_model_path(repo_root)
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return None
+        return data
+    except Exception:
+        return None
+
+
+def save_voice_model(repo_root: Path, *, speaker_wav: Path) -> Path:
+    p = _voice_model_path(repo_root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    voice_dir = _voice_cache_dir(repo_root)
+    payload = {
+        "kind": "myvoice-maker-voice-model",
+        "model_name": "tts_models/multilingual/multi-dataset/xtts_v2",
+        "language": "ja",
+        "speaker_wav": _rel_to_repo(repo_root, speaker_wav),
+        "voice_id": _default_voice_id(),
+        "voice_dir": _rel_to_repo(repo_root, voice_dir),
+        "built_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return p
 
 
 app = FastAPI(title="MyVoice Maker Local API")
@@ -71,12 +124,12 @@ async def _auto_warmup_tts() -> None:
 
     async def _run():
         try:
-            print("[startup] TTS warmup start...")
+            logger.info("[startup] TTS warmup start...")
             await get_voice_generator_async()
-            print("[startup] TTS warmup done")
+            logger.info("[startup] TTS warmup done")
         except Exception as e:  # noqa: BLE001
             # 失敗しても起動は継続する（初回リクエストでリトライ）
-            print(f"[startup] TTS warmup failed: {e}")
+            logger.error(f"[startup] TTS warmup failed: {e}")
 
     asyncio.create_task(_run())
 
@@ -86,15 +139,25 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/tts_status")
+def tts_status() -> dict[str, object]:
+    """TTSモデルの初期化状況を返す（UIが待ち合わせに利用）。"""
+
+    return get_tts_init_state()
+
+
 @app.post("/api/warmup_tts")
 async def warmup_tts() -> dict[str, str]:
     """Coqui TTSモデルを事前ロードする（初回アクセス高速化）"""
     try:
         # 初回のモデルロードは重く、イベントループをブロックすると他のAPIが固まるため
         # run_in_executor を内部で利用する非同期版をawaitする。
+        t0 = time.perf_counter()
         await get_voice_generator_async()
+        logger.info(f"/api/warmup_tts done in {(time.perf_counter() - t0):.3f}s")
         return {"status": "ready", "message": "Coqui TTS model loaded successfully"}
     except Exception as e:
+        logger.error(f"/api/warmup_tts failed: {e}")
         return {"status": "error", "message": str(e)}
 
 
@@ -179,9 +242,54 @@ def clear_temp_folder(temp_dir: str) -> bool:
         return False
 
 
-@app.post("/api/upload/pdf")
-async def upload_pdf(file: UploadFile = File(...)) -> dict[str, str]:
-    raise HTTPException(status_code=410, detail="このアプリは音声生成専用です（PDF/動画機能は削除されました）")
+class BuildVoiceModelRequest(BaseModel):
+    speaker_wav: Optional[str] = None  # 指定があればそれを優先（相対パスはリポジトリルート基準）
+
+
+@app.post("/api/build_voice_model")
+async def build_voice_model(req: BuildVoiceModelRequest) -> dict[str, str]:
+    """音声生成モデル（話者WAV + 話者埋め込みキャッシュ）を構築して保存する。"""
+    repo_root = _repo_root()
+
+    # まずTTS本体をプリロード（DL/初期化を先に始める）
+    try:
+        await get_voice_generator_async()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"TTSモデルの初期化に失敗しました: {e}")
+
+    speaker: Optional[Path] = None
+    if req.speaker_wav:
+        speaker = _abs_from_repo(repo_root, req.speaker_wav)
+        if not speaker.exists():
+            raise HTTPException(status_code=400, detail=f"speaker_wavが見つかりません: {speaker}")
+    else:
+        speaker = pick_default_speaker_wav()
+
+    if not speaker:
+        raise HTTPException(status_code=400, detail="話者サンプルが見つかりません。録音して sample_01.wav 等を作成してください")
+
+    # 話者埋め込み（conditioning latents 等）を事前計算して保存する
+    voice_id = _default_voice_id()
+    voice_dir = _voice_cache_dir(repo_root)
+    try:
+        vg = await get_voice_generator_async()
+        voice_file = await asyncio.to_thread(
+            vg.build_voice_cache,
+            speaker_wav=speaker,
+            voice_id=voice_id,
+            voice_dir=voice_dir,
+        )
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"話者埋め込みの保存に失敗しました: {e}")
+
+    saved = save_voice_model(repo_root, speaker_wav=speaker)
+    return {
+        "ok": "true",
+        "saved": str(saved),
+        "speaker_wav": str(speaker),
+        "voice_file": str(voice_file),
+        "model_name": "tts_models/multilingual/multi-dataset/xtts_v2",
+    }
 
 
 @app.post("/api/upload/csv")
@@ -228,7 +336,7 @@ async def upload_csv(file: UploadFile = File(...)) -> dict[str, object]:
     # サーバー側で文字化け対処 + CSVパースし、UIへそのまま返す。
     try:
         rows = load_script_csv(unique)
-        slides = [{"index": r.index, "script": r.script} for r in rows]
+        script_rows = [{"index": r.index, "script": r.script} for r in rows]
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"CSVの解析に失敗しました: {e}")
 
@@ -247,7 +355,7 @@ async def upload_csv(file: UploadFile = File(...)) -> dict[str, object]:
         "filename": unique.name,
         "canonical_saved": canonical_saved,
         "canonical_path": str(canonical),
-        "slides": slides,
+        "rows": script_rows,
     }
 
 
@@ -264,9 +372,9 @@ async def upload_recording(file: UploadFile = File(...)) -> dict[str, str]:
     # アップロードされたファイルを一旦そのまま保存（拡張子・MIMEは信用しない）
     raw_filename = _sanitize_filename(Path(file.filename).name)
     raw_ext = Path(raw_filename).suffix.lower()
-    if raw_ext not in (".wav", ".webm", ".ogg", ".mp3", ".m4a", ".aac", ".flac"):
-        # ブラウザ録音は webm が多い。未知拡張子は .webm として扱う
-        raw_filename = str(Path(raw_filename).with_suffix(".webm"))
+    if not raw_ext:
+        # 拡張子が無い場合でも受け取り、FFmpegのプローブに任せる
+        raw_filename = raw_filename + ".bin"
 
     data = await file.read()
     if not data:
@@ -295,7 +403,7 @@ async def upload_recording(file: UploadFile = File(...)) -> dict[str, str]:
 
 
 class GenerateAudioRequest(BaseModel):
-    slide_index: int
+    index: int
     script: str
     overwrite: bool = True
 
@@ -312,28 +420,71 @@ class ClearTempRequest(BaseModel):
 
 @app.post("/api/generate_audio")
 async def generate_audio(req: GenerateAudioRequest) -> dict[str, str]:
-    """単一スライドの音声を output/slide_000.mp3 等へ保存する。"""
+    """単一行の音声を output/voice_000.mp3 等へ保存する。"""
     repo_root = _repo_root()
     out_dir = _output_dir(repo_root)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    t0 = time.perf_counter()
+    logger.info(f"/api/generate_audio start index={req.index} script_len={len(req.script or '')} overwrite={req.overwrite}")
+
+    # モデル初期化が進行中の場合、ここで待たずにUIへ状態を返す。
+    # （UI側は 202 を受けたら進捗表示しつつリトライする）
+    st = get_tts_init_state()
+    if st.get("ready") is not True and os.environ.get("SVM_FAKE_TTS", "0") != "1":
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "warming",
+                "message": "TTSモデル初期化中です",
+                "tts": st,
+                "audio_url": "",
+                "path": "",
+            },
+        )
+
     if not req.script or not req.script.strip():
         return {"audio_url": "", "path": ""}
 
-    speaker = pick_default_speaker_wav()
-    if not speaker:
-        raise HTTPException(status_code=400, detail="話者サンプルが見つかりません。録音して sample_01.wav 等を作成してください")
+    # 保存済みモデルを優先して使う
+    saved = load_saved_voice_model(repo_root) or {}
+    speaker: Optional[Path] = None
+    voice_id: Optional[str] = None
+    voice_dir: Optional[Path] = None
+
+    if saved.get("voice_id") and saved.get("voice_dir"):
+        voice_id = str(saved.get("voice_id"))
+        voice_dir = _abs_from_repo(repo_root, str(saved.get("voice_dir")))
+        voice_file = voice_dir / f"{voice_id}.pth"
+        if not voice_file.exists():
+            # voice キャッシュが無い場合は speaker_wav 経由で生成にフォールバック
+            voice_id = None
+            voice_dir = None
+
+    if voice_id is None:
+        if saved.get("speaker_wav"):
+            speaker = _abs_from_repo(repo_root, str(saved["speaker_wav"]))
+        if not speaker or not speaker.exists():
+            speaker = pick_default_speaker_wav()
+        if not speaker:
+            raise HTTPException(
+                status_code=400,
+                detail="話者サンプルが見つかりません。録音して sample_01.wav 等を作成してください",
+            )
 
     try:
         vg = await get_voice_generator_async()
         audio_path = await asyncio.to_thread(
             vg.generate_one,
-            index=req.slide_index,
+            index=req.index,
             script=req.script,
             speaker_wav=speaker,
+            voice_id=voice_id,
+            voice_dir=voice_dir,
             output_dir=out_dir,
             overwrite=req.overwrite,
         )
+        logger.info(f"/api/generate_audio done index={req.index} in {(time.perf_counter() - t0):.3f}s")
         audio_url = ""
         try:
             rel = Path(audio_path).relative_to(repo_root)
@@ -343,8 +494,10 @@ async def generate_audio(req: GenerateAudioRequest) -> dict[str, str]:
             audio_url = ""
         return {"audio_url": audio_url, "path": str(audio_path)}
     except FileExistsError as e:
+        logger.warning(f"/api/generate_audio conflict index={req.index}: {e}")
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
+        logger.exception(f"/api/generate_audio error index={req.index}")
         raise HTTPException(status_code=500, detail=f"音声生成エラー: {e}")
 
 
@@ -372,15 +525,33 @@ async def generate_from_csv(req: GenerateFromCsvRequest) -> dict[str, object]:
     clear_temp_folder(str(out_dir / "temp"))
 
     speaker: Optional[Path] = None
+    voice_id: Optional[str] = None
+    voice_dir: Optional[Path] = None
+
+    # 1) 明示指定（テスト等）: speaker_wav を最優先（voice キャッシュより上）
     if req.speaker_wav:
-        p = Path(req.speaker_wav)
-        speaker = p if p.is_absolute() else (repo_root / p).resolve()
+        speaker = _abs_from_repo(repo_root, req.speaker_wav)
         if not speaker.exists():
             raise HTTPException(status_code=400, detail=f"speaker_wavが見つかりません: {speaker}")
     else:
-        speaker = pick_default_speaker_wav()
+        # 2) 保存済みモデル（voice キャッシュ優先）
+        saved = load_saved_voice_model(repo_root) or {}
+        if saved.get("voice_id") and saved.get("voice_dir"):
+            voice_id = str(saved.get("voice_id"))
+            voice_dir = _abs_from_repo(repo_root, str(saved.get("voice_dir")))
+            voice_file = voice_dir / f"{voice_id}.pth"
+            if not voice_file.exists():
+                voice_id = None
+                voice_dir = None
 
-    if not speaker:
+        if voice_id is None and saved.get("speaker_wav"):
+            speaker = _abs_from_repo(repo_root, str(saved["speaker_wav"]))
+
+        # 3) デフォルト
+        if voice_id is None and (not speaker or not speaker.exists()):
+            speaker = pick_default_speaker_wav()
+
+    if voice_id is None and not speaker:
         raise HTTPException(status_code=400, detail="話者サンプルが見つかりません。録音して sample_01.wav 等を作成してください")
 
     try:
@@ -389,6 +560,8 @@ async def generate_from_csv(req: GenerateFromCsvRequest) -> dict[str, object]:
             vg.generate_from_csv,
             script_csv_path=script_path,
             speaker_wav=speaker,
+            voice_id=voice_id,
+            voice_dir=voice_dir,
             output_dir=out_dir,
             overwrite=req.overwrite,
         )
@@ -400,11 +573,18 @@ async def generate_from_csv(req: GenerateFromCsvRequest) -> dict[str, object]:
                 audio_url = f"/{rel.as_posix()}"
             except Exception:
                 audio_url = ""
-            # slide_000.mp3 → index 抽出
-            m = re.match(r"^slide_(\d+)\.mp3$", p.name, flags=re.IGNORECASE)
+            # voice_000.mp3 → index 抽出
+            m = re.match(r"^voice_(\d+)\.mp3$", p.name, flags=re.IGNORECASE)
             idx = int(m.group(1)) if m else -1
             items.append({"index": idx, "audio_url": audio_url, "path": str(p)})
-        return {"ok": True, "count": len(items), "items": items, "speaker_wav": str(speaker)}
+        return {
+            "ok": True,
+            "count": len(items),
+            "items": items,
+            "speaker_wav": str(speaker) if speaker else "",
+            "voice_id": str(voice_id) if voice_id else "",
+            "voice_dir": str(voice_dir) if voice_dir else "",
+        }
     except FileExistsError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
@@ -431,6 +611,30 @@ def clear_temp(req: ClearTempRequest) -> JSONResponse:
 
     ok = clear_temp_folder(str(target))
     return JSONResponse({"ok": bool(ok), "cleared": str(target)})
+
+
+@app.get("/api/export/csv")
+def export_csv() -> FileResponse:
+    """現在の原稿CSVをダウンロードする。"""
+    repo_root = _repo_root()
+    in_dir = _input_dir(repo_root)
+
+    global _LAST_UPLOADED_SCRIPT_CSV
+    script_path = None
+    with _CSV_LOCK:
+        if _LAST_UPLOADED_SCRIPT_CSV and _LAST_UPLOADED_SCRIPT_CSV.exists():
+            script_path = _LAST_UPLOADED_SCRIPT_CSV
+    if script_path is None:
+        script_path = in_dir / "原稿.csv"
+
+    if not script_path.exists():
+        raise HTTPException(status_code=404, detail=f"原稿CSVが見つかりません: {script_path}")
+
+    return FileResponse(
+        path=str(script_path),
+        media_type="text/csv",
+        filename="原稿.csv",
+    )
 
 
 # APIより後に static をマウント（/api を潰さない）

@@ -62,14 +62,14 @@ def main(argv: list[str] | None = None) -> int:
         "--input",
         type=str,
         default=None,
-        help="変換したい音声ファイル（wav/webm/mp3/m4a等）。未指定の場合はWeb UIの録音機能を使ってください。",
+        help="変換したい音声ファイル（wav/mp3/m4a/ogg等）。未指定の場合はWeb UIの録音機能を使ってください。",
     )
     args = parser.parse_args(argv)
 
     if not args.input:
         print("このスクリプトは '音声ファイル→sample_XX.wav 変換' 用です。")
         print("録音は Web UI（index.html の『録音』）を使うのが推奨です。")
-        print("例: py -3.10 src\\voice\\create_voice.py --input path\\to\\recording.webm")
+        print("例: py -3.10 src\\voice\\create_voice.py --input path\\to\\recording.wav")
         return 2
 
     src = Path(args.input)

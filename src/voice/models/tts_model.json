@@ -1,0 +1,9 @@
+{
+  "kind": "myvoice-maker-voice-model",
+  "model_name": "tts_models/multilingual/multi-dataset/xtts_v2",
+  "language": "ja",
+  "speaker_wav": "src/voice/models/samples/sample_01.wav",
+  "voice_id": "myvoice",
+  "voice_dir": "src/voice/models/voices",
+  "built_at": "2026-01-04T20:58:28"
+}

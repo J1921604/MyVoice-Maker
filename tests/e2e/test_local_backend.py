@@ -128,21 +128,7 @@ def test_local_backend_uploads_csv_and_generates_mp3(tmp_path: Path) -> None:
         # index.html が配信される（UIの入口がある）こと
         code, body = _http_get(f"{base_url}/index.html", timeout=10)
         assert code == 200
-        assert b"MyVoice" in body or b"Slide Voice Maker" in body
-
-        # PDFアップロードは410
-        try:
-            _http_post_multipart_file(
-                f"{base_url}/api/upload/pdf",
-                field="file",
-                filename="sample.pdf",
-                content_type="application/pdf",
-                file_bytes=b"%PDF-1.4\n%...",
-                timeout=10,
-            )
-            assert False, "expected 410"
-        except HTTPError as e:
-            assert e.code == 410
+        assert b"MyVoice" in body
 
         # CSVアップロード（input/へ保存され、slidesが返る）
         code, body = _http_post_multipart_file(
@@ -155,23 +141,30 @@ def test_local_backend_uploads_csv_and_generates_mp3(tmp_path: Path) -> None:
         )
         assert code == 200
         j = json.loads(body.decode("utf-8"))
-        assert "slides" in j
-        assert len(j["slides"]) == 2
+        assert "rows" in j
+        assert len(j["rows"]) == 2
 
         # output/temp をクリア
         code, _ = _http_post_json(f"{base_url}/api/clear_temp", {}, timeout=30)
         assert code == 200
 
-        # 一括生成（speaker_wavは絶対パス指定）
-        payload = {"overwrite": True, "speaker_wav": str(speaker)}
+        # 生成前にモデル構築（話者WAVを保存）
+        payload = {"speaker_wav": str(speaker)}
+        code, body = _http_post_json(f"{base_url}/api/build_voice_model", payload, timeout=180)
+        assert code == 200
+        j = json.loads(body.decode("utf-8"))
+        assert j.get("ok") == "true"
+
+        # 一括生成（保存済みモデルのspeaker_wavが使われる）
+        payload = {"overwrite": True}
         code, body = _http_post_json(f"{base_url}/api/generate_from_csv", payload, timeout=180)
         assert code == 200
         j = json.loads(body.decode("utf-8"))
         assert j.get("ok") is True
         assert j.get("count") == 2
 
-        out0 = output_dir / "slide_000.mp3"
-        out1 = output_dir / "slide_001.mp3"
+        out0 = output_dir / "voice_000.mp3"
+        out1 = output_dir / "voice_001.mp3"
         assert out0.exists() and out0.stat().st_size > 0
         assert out1.exists() and out1.stat().st_size > 0
 
