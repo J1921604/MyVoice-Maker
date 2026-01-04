@@ -334,14 +334,22 @@ class VoiceGenerator:
                 raise RuntimeError("TTSモデルが初期化されていません")
 
             # XTTS は WAV 生成が安定しやすいので一旦 WAV → MP3
+            print(f"[VoiceGenerator] Generating WAV... script_len={len(script)}")
             self._tts.tts_to_file(
                 text=script,
                 speaker_wav=str(speaker_wav),
                 language="ja",
                 file_path=str(wav_path),
             )
+            
+            if not wav_path.exists() or wav_path.stat().st_size == 0:
+                raise RuntimeError(f"WAV生成に失敗しました（ファイルが存在しないか空です）: {wav_path}")
+            print(f"[VoiceGenerator] WAV generated: {wav_path} (size={wav_path.stat().st_size} bytes)")
 
         _ffmpeg_encode_to_mp3(wav_path, mp3_path)
+        if not mp3_path.exists() or mp3_path.stat().st_size == 0:
+             raise RuntimeError(f"MP3変換に失敗しました（ファイルが存在しないか空です）: {mp3_path}")
+
         print(f"[VoiceGenerator] done index={index} -> {mp3_path} (size={mp3_path.stat().st_size} bytes)")
         return mp3_path
 
