@@ -2,9 +2,7 @@
 
 ## 概要
 
-Slide MyVoice Makerでは、動画エンコードにFFmpegを使用します。Coqui TTS（XTTS v2）による音声生成では、soundfileライブラリを使用してtorchaudioのバイパスを実装しているため、標準的なFFmpegで十分動作します。
-
-**重要**: 本プロジェクトではTorchCodecは不要です。torchaudio.loadをsoundfileで置き換えることで、複雑なDLL依存を回避しています。
+MyVoice Makerでは、音声生成にFFmpegを使用します。Coqui TTS（XTTS v2）による音声生成では、soundfileライブラリを使用して音声処理を実装しています。
 
 ## 前提条件
 
@@ -129,7 +127,7 @@ libavformat    62.  8.102 / 62.  8.102
 
 ```powershell
 # プロジェクトディレクトリに移動
-cd C:\Users\h-ham\spec-kit\11_Slide-MyVoice-Maker
+cd C:\Users\h-ham\spec-kit\12_MyVoice-Maker
 
 # 仮想環境を有効化（.venvがある場合）
 .\.venv\Scripts\Activate.ps1
@@ -141,7 +139,6 @@ py -3.10 src\voice\create_voice.py
 成功時の出力例：
 
 ```
-TorchCodecバイパス: torchaudio.load を soundfile ベースに差し替えました
 Coqui TTS モデルを初期化中... (device: cpu)
 初回実行時はモデルダウンロードに30-60秒かかります。
 音声生成中: こんにちは、お元気ですか。
@@ -176,18 +173,6 @@ speaker_wavを読み込みました: ...\sample.wav
    ```powershell
    pip install --force-reinstall imageio-ffmpeg
    ```
-
-### soundfileによるTorchCodecバイパスについて
-
-本プロジェクトでは、`src/processor.py` の `_patch_torchaudio_load()` 関数で、torchaudio.loadをsoundfile.readに置き換えています。これにより、TorchCodecおよびFFmpegの共有ライブラリ（DLL）依存を完全に回避しています。
-
-バイパスが正常に動作している場合、以下のメッセージが表示されます：
-
-```
-TorchCodecバイパス: torchaudio.load を soundfile ベースに差し替えました
-```
-
-このメッセージが表示されれば、TorchCodecのインストールは不要です。
 
 ## 参考リンク
 

@@ -214,7 +214,7 @@ erDiagram
 TTS>=0.22.0                 # Coqui TTS (XTTS v2)
 torch>=2.0.0                # PyTorch (Coqui TTS依存)
 torchaudio>=2.0.0           # torchaudio (Coqui TTS依存)
-soundfile>=0.12.1           # TorchCodecバイパス用
+soundfile>=0.12.1           # 音声ファイル処理
 cutlet>=0.4.0               # 日本語ローマ字化
 unidic-lite>=1.0.8          # MeCab辞書（fugashi依存）
 

@@ -256,6 +256,33 @@ flowchart LR
 - 複雑さの導入は正当化を文書化する
 - 開発ガイダンスは `.specify/templates/` を参照する
 
+## プロジェクトコンテキスト
+
+### 技術スタック
+
+**言語**: Python 3.10.11  
+**音声合成**: Coqui TTS (XTTS v2) - 自分の声でクローン音声生成  
+**音声処理**: soundfile, imageio-ffmpeg  
+**Web UI**: Pure HTML/CSS/JavaScript  
+**サーバー**: FastAPI + Uvicorn  
+**リポジトリ**: https://github.com/J1921604/MyVoice-Maker
+
+### プロジェクト特性
+
+- **種別**: 音声生成ツール
+- **入力**: 原稿CSV、音声サンプル（WAV）
+- **出力**: 音声ファイル（MP3）
+- **実行環境**: Windowsローカル（py -3.10）
+- **デプロイ**: GitHub Pages（静的フロントエンド） + ローカルAPIサーバー
+
+### 機能範囲
+
+1. **音声サンプル録音**: 3-600秒間の自分の声を録音
+2. **原稿CSV入力**: UTF-8/Shift-JIS対応のCSVアップロード
+3. **音声生成**: Coqui TTS (XTTS v2)で自然な日本語音声生成
+4. **タイムアウト対策**: 500文字以上の長文自動分割
+5. **ファイル管理**: output/temp自動クリア（リトライ機能付き）
+
 ## プロダクト機能仕様
 
 ### 機能一覧
